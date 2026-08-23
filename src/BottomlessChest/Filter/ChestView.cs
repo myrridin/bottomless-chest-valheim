@@ -36,6 +36,7 @@ namespace BottomlessChest.Filter
         private static int _scrollRow;
         private static int _windowStart;
         private static int _windowEnd;
+        private static Core.BottomlessContainer _owner;
 
         internal static int MatchCount => _matchCount;
 
@@ -70,8 +71,12 @@ namespace BottomlessChest.Filter
         /// <summary>Slots reserved for the window, which hidden items are placed after.</summary>
         internal static int WindowSlots => Width * VisibleRows;
 
-        internal static void Begin(Inventory inventory)
+        /// <summary>True while the chest is waiting on the server, so the grid is not yet real.</summary>
+        internal static bool AwaitingContents => _owner != null && _owner.AwaitingContents;
+
+        internal static void Begin(Inventory inventory, Core.BottomlessContainer owner)
         {
+            _owner = owner;
             _target = inventory;
             _query = string.Empty;
             _scrollRow = 0;
@@ -81,6 +86,7 @@ namespace BottomlessChest.Filter
         internal static void End()
         {
             var previous = _target;
+            _owner = null;
             _target = null;
             _view = null;
             _query = string.Empty;
@@ -97,9 +103,11 @@ namespace BottomlessChest.Filter
 
         internal static void SetQuery(string query)
         {
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             _query = query ?? string.Empty;
             _scrollRow = 0;
             Reapply();
+            var filtered = timer.ElapsedMilliseconds;
             Refresh();
         }
 
@@ -173,6 +181,14 @@ namespace BottomlessChest.Filter
                     {
                         rest.Add(item);
                     }
+                }
+
+                if (ModConfig.SortFilteredResults.Value)
+                {
+                    // Only the matches are sorted. Leaving the remainder alone means an
+                    // order applied by another mod survives once the filter is cleared.
+                    matched.Sort((left, right) =>
+                        ItemOrdering.ByName.Compare(new ItemAdapter(left), new ItemAdapter(right)));
                 }
 
                 _matchCount = matched.Count;

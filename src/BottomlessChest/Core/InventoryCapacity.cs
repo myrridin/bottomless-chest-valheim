@@ -21,6 +21,17 @@ namespace BottomlessChest.Core
     {
         private static readonly HashSet<Inventory> Unbounded = new HashSet<Inventory>();
 
+        /// <summary>
+        /// Suppresses per-change work during a bulk load.
+        /// </summary>
+        /// <remarks>
+        /// Filling an inventory fires Changed more than once, and each one would re-pack and
+        /// re-filter the whole chest. The loader calls Repack and Apply itself once it is
+        /// done, so doing it per event is pure waste - and at ten thousand stacks it is
+        /// several seconds of it.
+        /// </remarks>
+        internal static bool Suspended { get; set; }
+
         internal static void Register(Inventory inventory)
         {
             if (inventory != null && Unbounded.Add(inventory))
@@ -58,6 +69,14 @@ namespace BottomlessChest.Core
                 width = 1;
             }
 
+            // Cheap disqualifier first: a chest that cannot fit in one window never needs
+            // the per-item check, and at ten thousand stacks that list was being built on
+            // every single inventory change.
+            if (inventory.m_inventory.Count > width * rows)
+            {
+                return false;
+            }
+
             var positions = new List<GridPos>(inventory.m_inventory.Count);
             foreach (var item in inventory.m_inventory)
             {
@@ -83,7 +102,17 @@ namespace BottomlessChest.Core
             }
         }
 
-        internal static void Apply(Inventory inventory)
+        internal static void Apply(Inventory inventory) => ApplyFor(inventory, inventory.m_inventory.Count);
+
+        /// <summary>
+        /// Sizes the grid for a given item count, which may not be in the inventory yet.
+        /// </summary>
+        /// <remarks>
+        /// Needed before a bulk load. Inventory.Load calls AddItem per item, and AddItem
+        /// silently drops anything that will not fit the current grid - so loading into a
+        /// grid sized for the previous contents quietly discards the rest.
+        /// </remarks>
+        internal static void ApplyFor(Inventory inventory, int count)
         {
             var width = ModConfig.GridWidth.Value;
             if (width < 1)
@@ -93,8 +122,8 @@ namespace BottomlessChest.Core
 
             // While a chest is open its hidden items are parked below the visible window,
             // so the grid must be tall enough for the window plus everything parked under it.
-            var reserved = Filter.ChestView.IsOpen ? Filter.ChestView.WindowSlots : 0;
-            var rows = GridPacker.RowsForChest(inventory.m_inventory.Count + reserved, width, ModConfig.MinRows.Value);
+            var reserved = Filter.ChestView.WindowSlots;
+            var rows = GridPacker.RowsForChest(count + reserved, width, ModConfig.MinRows.Value);
 
             // Positions are not always ours - another mod may have sorted the chest - so the
             // grid has to be tall enough for wherever the items actually are. An item below
@@ -152,11 +181,13 @@ namespace BottomlessChest.Core
             // Runs on every inventory mutation in the game, so it must stay a hash lookup.
             private static void Postfix(Inventory __instance)
             {
-                if (Unbounded.Contains(__instance))
+                if (!Unbounded.Contains(__instance) || Suspended)
                 {
-                    Apply(__instance);
-                    Filter.ChestView.OnInventoryChanged(__instance);
+                    return;
                 }
+
+                Apply(__instance);
+                Filter.ChestView.OnInventoryChanged(__instance);
             }
         }
     }

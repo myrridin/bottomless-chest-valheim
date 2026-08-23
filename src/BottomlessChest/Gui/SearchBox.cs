@@ -22,15 +22,19 @@ namespace BottomlessChest.Gui
         {
             private static void Postfix(InventoryGui __instance, Container container)
             {
-                if (container == null || !BottomlessContainer.TryResolve(container, out _))
+                if (container == null || !BottomlessContainer.TryResolve(container, out var bottomless))
                 {
                     return;
                 }
 
+                // Always re-ask the server on open. Fetching once per session leaves this
+                // client showing a stale copy of a chest anyone else has touched.
+                bottomless.RefreshFromServer();
+
                 // Order matters: Teardown clears filter state, so it has to happen before
                 // Begin, never after.
                 Teardown();
-                ChestView.Begin(container.GetInventory());
+                ChestView.Begin(container.GetInventory(), bottomless);
                 Build(__instance);
             }
         }
@@ -140,6 +144,19 @@ namespace BottomlessChest.Gui
             }
         }
 
+        /// <summary>Keeps the count line current while contents are still arriving.</summary>
+        [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Update))]
+        private static class StatusRefreshPatch
+        {
+            private static void Postfix()
+            {
+                if (_status != null)
+                {
+                    UpdateStatus();
+                }
+            }
+        }
+
         private static void OnChanged(string text)
         {
             try
@@ -158,6 +175,13 @@ namespace BottomlessChest.Gui
         {
             if (_status == null)
             {
+                return;
+            }
+
+            if (ChestView.AwaitingContents)
+            {
+                // An empty grid would otherwise read as an empty chest.
+                _status.text = "Loading from server...";
                 return;
             }
 

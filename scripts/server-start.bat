@@ -1,6 +1,7 @@
 @echo off
 REM Local dedicated server for BottomlessChest development.
 REM Join from the client with: Join IP -> 127.0.0.1:2456
+REM -public 0 keeps this dev server off the public server list; joining by IP still works.
 REM
 REM -savedir keeps the server's world (and its .bottomless.dat) separate from the
 REM client's, so the two copies can be compared when something looks wrong.
@@ -18,5 +19,5 @@ valheim_server.exe -nographics -batchmode ^
   -world "bottomlessdev" ^
   -password "devpassword" ^
   -savedir "%SAVEDIR%" ^
-  -crossplay
+  -public 0
 pause

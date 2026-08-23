@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
 
 namespace BottomlessChest.Logic
 {
@@ -48,7 +46,7 @@ namespace BottomlessChest.Logic
             {
                 foreach (var raw in query.Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    var term = Normalize(raw);
+                    var term = TextKey.Of(raw);
                     if (term.Length == 0)
                     {
                         continue;
@@ -87,7 +85,7 @@ namespace BottomlessChest.Logic
                 return true;
             }
 
-            var name = Normalize(item.DisplayName);
+            var name = TextKey.Of(item.DisplayName);
 
             foreach (var term in _textTerms)
             {
@@ -100,28 +98,5 @@ namespace BottomlessChest.Logic
             return true;
         }
 
-        /// <summary>
-        /// Lower-cases and strips diacritics so "angbat" finds "Ångbåt".
-        /// </summary>
-        private static string Normalize(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-            {
-                return string.Empty;
-            }
-
-            var decomposed = value.Normalize(NormalizationForm.FormD);
-            var builder = new StringBuilder(decomposed.Length);
-
-            foreach (var c in decomposed)
-            {
-                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-                {
-                    builder.Append(c);
-                }
-            }
-
-            return builder.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant();
-        }
     }
 }

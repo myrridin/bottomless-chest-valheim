@@ -31,6 +31,7 @@ namespace BottomlessChest.Core
         private ZNetView _nview;
         private bool _contentsLoaded;
         private bool _warnedAboutUnloadedSave;
+        private bool _loadWasPartial;
         private bool _pendingSnapshot;
         private float _lastChangeAt;
         private float _lastRequestAt;
@@ -66,6 +67,50 @@ namespace BottomlessChest.Core
         }
 
         internal Vector3 Position => transform.position;
+
+        internal Inventory Inventory => _container?.m_inventory;
+
+        /// <summary>True while we are waiting on the server for this chest's contents.</summary>
+        internal bool AwaitingContents => !_contentsLoaded && !SidecarStore.IsServerAuthority;
+
+        /// <summary>
+        /// Re-asks the server for contents, ignoring the request throttle.
+        /// </summary>
+        /// <remarks>
+        /// Called when the chest is opened. Contents were previously fetched once per
+        /// session, so a chest changed by another player - or by a console command - would
+        /// keep showing this client's stale copy indefinitely.
+        /// </remarks>
+        internal void RefreshFromServer()
+        {
+            if (SidecarStore.IsServerAuthority)
+            {
+                return;
+            }
+
+            _lastRequestAt = 0f;
+
+            var storeId = CurrentStoreId;
+            if (!string.IsNullOrEmpty(storeId))
+            {
+                RequestFromServer(storeId);
+            }
+        }
+
+        /// <summary>
+        /// Re-lays-out and persists after a bulk edit made outside the normal item paths.
+        /// </summary>
+        internal void NotifyFilled()
+        {
+            if (_container == null)
+            {
+                return;
+            }
+
+            InventoryCapacity.Repack(_container.m_inventory);
+            InventoryCapacity.Apply(_container.m_inventory);
+            SaveToStore();
+        }
 
         internal string CurrentStoreId
         {
@@ -193,7 +238,8 @@ namespace BottomlessChest.Core
             try
             {
                 _container.m_loading = true;
-                _container.m_inventory.Load(new ZPackage(legacy));
+                InventoryCapacity.Suspended = true;
+                LoadIntoInventory(System.Convert.FromBase64String(legacy));
                 InventoryCapacity.Repack(_container.m_inventory);
                 InventoryCapacity.Apply(_container.m_inventory);
             }
@@ -204,6 +250,7 @@ namespace BottomlessChest.Core
             }
             finally
             {
+                InventoryCapacity.Suspended = false;
                 _container.m_loading = false;
             }
 
@@ -223,6 +270,22 @@ namespace BottomlessChest.Core
             var storeId = GetOrCreateStoreId();
             if (storeId == null)
             {
+                return;
+            }
+
+            // A partial load is more dangerous than a failed one: the chest looks populated,
+            // just smaller, so nothing seems wrong until the truncated copy is written back
+            // over the real contents.
+            if (_loadWasPartial)
+            {
+                if (!_warnedAboutUnloadedSave)
+                {
+                    _warnedAboutUnloadedSave = true;
+                    Plugin.Log.LogError(
+                        $"Refusing to save chest {storeId}: it only loaded partially, so saving " +
+                        "would overwrite the full contents with this truncated copy.");
+                }
+
                 return;
             }
 
@@ -310,6 +373,54 @@ namespace BottomlessChest.Core
             Net.ChestRpc.RequestContents(storeId);
         }
 
+        /// <summary>
+        /// Reads just the item count from a serialized inventory, without parsing it.
+        /// </summary>
+        /// <remarks>
+        /// The grid has to be big enough before Load runs, and Load is the only thing that
+        /// knows how many items there are - so the header is peeked first.
+        /// </remarks>
+        private static int PeekItemCount(byte[] contents)
+        {
+            if (contents == null || contents.Length < 8)
+            {
+                return 0;
+            }
+
+            try
+            {
+                var package = new ZPackage(contents);
+                package.ReadInt();
+                return package.ReadInt();
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>Loads a serialized inventory without losing items to grid capacity.</summary>
+        private void LoadIntoInventory(byte[] contents)
+        {
+            var expected = PeekItemCount(contents);
+
+            _container.m_inventory.RemoveAll();
+            InventoryCapacity.ApplyFor(_container.m_inventory, expected);
+            _container.m_inventory.Load(new ZPackage(contents));
+
+            var actual = _container.m_inventory.m_inventory.Count;
+            _loadWasPartial = actual != expected;
+
+            if (_loadWasPartial)
+            {
+                // Loud, because the failure mode is silent: AddItem drops what will not fit
+                // and reports nothing, so the chest simply looks emptier than it is.
+                Plugin.Log.LogError(
+                    $"Loaded {actual} of {expected} stacks - {expected - actual} were dropped " +
+                    $"because the grid was too small ({_container.m_inventory.m_width}x{_container.m_inventory.m_height}).");
+            }
+        }
+
         /// <summary>Applies contents received over the network.</summary>
         internal void ApplyRemoteContents(byte[] contents)
         {
@@ -318,18 +429,28 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            long loaded = 0, repacked = 0;
+
             try
             {
                 _container.m_loading = true;
-                _container.m_inventory.RemoveAll();
+                InventoryCapacity.Suspended = true;
 
                 if (contents != null && contents.Length > 0)
                 {
-                    _container.m_inventory.Load(new ZPackage(contents));
+                    LoadIntoInventory(contents);
                 }
+                else
+                {
+                    _container.m_inventory.RemoveAll();
+                }
+
+                loaded = timer.ElapsedMilliseconds;
 
                 InventoryCapacity.Repack(_container.m_inventory);
                 InventoryCapacity.Apply(_container.m_inventory);
+                repacked = timer.ElapsedMilliseconds;
             }
             catch (Exception ex)
             {
@@ -338,12 +459,24 @@ namespace BottomlessChest.Core
             }
             finally
             {
+                InventoryCapacity.Suspended = false;
                 _container.m_loading = false;
+            }
+
+            var count = _container.m_inventory.m_inventory.Count;
+            if (count >= 1000)
+            {
+                Plugin.Log.LogInfo(
+                    $"Applied {count} stacks in {timer.ElapsedMilliseconds}ms " +
+                    $"(deserialise {loaded}ms, layout {repacked - loaded}ms, rest {timer.ElapsedMilliseconds - repacked}ms).");
             }
 
             // Only now is it safe to save: we have something real to save over.
             _contentsLoaded = true;
-            _warnedAboutUnloadedSave = false;
+            if (!_loadWasPartial)
+            {
+                _warnedAboutUnloadedSave = false;
+            }
         }
 
         /// <summary>
@@ -391,7 +524,8 @@ namespace BottomlessChest.Core
                 // inventory fires m_onChanged -> OnContainerChanged -> Save, which would
                 // immediately write back whatever we just read - including a partial read.
                 _container.m_loading = true;
-                _container.m_inventory.Load(new ZPackage(contents));
+                InventoryCapacity.Suspended = true;
+                LoadIntoInventory(contents);
                 InventoryCapacity.Repack(_container.m_inventory);
                 InventoryCapacity.Apply(_container.m_inventory);
                 return true;

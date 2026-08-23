@@ -14,6 +14,7 @@ namespace BottomlessChest.Settings
         internal static ConfigEntry<int> VisibleRows;
         internal static ConfigEntry<int> MinRows;
         internal static ConfigEntry<int> MaxItemEntries;
+        internal static ConfigEntry<bool> SortFilteredResults;
         internal static ConfigEntry<string> RecipeRequirements;
         internal static ConfigEntry<float> SnapshotDebounceSeconds;
         internal static ConfigEntry<float> ModelScale;
@@ -56,10 +57,16 @@ namespace BottomlessChest.Settings
             GlowColour = cfg.Bind("Appearance", "GlowColour", "#C8D93C",
                 "Hex colour of the emissive glow on the chest lid.");
 
-            GlowStrength = cfg.Bind("Appearance", "GlowStrength", 1.4f,
+            GlowStrength = cfg.Bind("Appearance", "GlowStrength", 0.5f,
                 new ConfigDescription(
-                    "Multiplier on the glow. Above 1 pushes it into bloom.",
+                    "Multiplier on the lid glow. Around 0.5 is a subtle sheen; above 1 pushes " +
+                    "it into bloom and reads as a light source.",
                     new AcceptableValueRange<float>(0f, 5f)));
+
+            SortFilteredResults = cfg.Bind("Storage", "SortFilteredResults", true,
+                "Group filtered results by item name so matches clump together. Only applies " +
+                "while a search is active; an unfiltered chest keeps whatever order it has, " +
+                "so a sort applied by another mod is left alone.");
 
             RecipeRequirements = cfg.Bind("Crafting", "Requirements", "FineWood:20,BlackMetal:10,SurtlingCore:5",
                 "Build cost, as Item:Amount pairs separated by commas. Item names are prefab names, not display names.");

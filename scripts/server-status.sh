@@ -6,8 +6,10 @@ SERVER="/mnt/c/Program Files (x86)/Steam/steamapps/common/Valheim dedicated serv
 SAVEDIR="/mnt/c/valheim_mods/server-save"
 LOG="$SERVER/BepInEx/LogOutput.log"
 
-printf '%-28s %s\n' "server running:" \
-    "$(tasklist.exe 2>/dev/null | grep -qi valheim_server && echo yes || echo no)"
+# Count rather than `grep -q`: -q exits on first match, which SIGPIPEs tasklist and
+# makes the pipeline fail under `set -o pipefail` even when the server is running.
+running=$(tasklist.exe 2>/dev/null | grep -ci valheim_server || true)
+printf '%-28s %s\n' "server running:" "$([ "$running" -gt 0 ] && echo yes || echo no)"
 
 if [ -f "$LOG" ]; then
     printf '%-28s %s\n' "BepInEx log:" "$(date -r "$LOG" '+%H:%M:%S')"

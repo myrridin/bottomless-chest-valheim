@@ -66,6 +66,10 @@
       <Output TaskParameter="CopiedFiles" ItemName="_ServerDeployed" />
     </Copy>
     <Message Condition="'@(_ServerDeployed)' != ''" Importance="high" Text="Deployed to dedicated server -> $(ServerDeployDir)" />
+    <!-- Silence here would let client and server drift apart unnoticed, which is exactly
+         what the dual deploy exists to prevent. -->
+    <Warning Condition="Exists('$(SERVER_INSTALL)\BepInEx\plugins') AND '@(_ServerDeployed)' == ''" Code="BC0002"
+             Text="SERVER DEPLOY SKIPPED - the dedicated server is running and holds the DLL. Ctrl+C it, then rebuild, or client and server will be on different builds." />
   </Target>
 
 </Project>
