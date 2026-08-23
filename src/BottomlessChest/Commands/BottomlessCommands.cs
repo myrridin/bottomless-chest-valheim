@@ -21,6 +21,13 @@ namespace BottomlessChest.Commands
 
         public override void Run(string[] args)
         {
+            // A dedicated server has no Console instance to print to.
+            if (Console.instance == null)
+            {
+                Plugin.Log.LogInfo("bottomless: no console available (headless server).");
+                return;
+            }
+
             if (args.Length == 0)
             {
                 Console.instance.Print(Help);

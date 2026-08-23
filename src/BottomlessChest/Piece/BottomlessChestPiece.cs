@@ -14,17 +14,31 @@ namespace BottomlessChest.Piece
     {
         internal const string PrefabName = "bottomless_chest";
         private const string DisplayNameToken = "$piece_bottomlesschest";
-        private const string BasePrefabName = "piece_chest_blackmetal";
+        // The personal chest: the smallest vanilla chest, chosen so a bottomless chest
+        // takes as little building space as possible.
+        private const string BasePrefabName = "piece_chest_private";
 
-        // Deliberately NOT blue-cyan: that is the colour of Valheim's translucent
-        // placement ghost, and a cyan-tinted chest reads as an unplaced preview.
-        private static readonly Color Tint = new Color(0.82f, 0.76f, 0.88f);
-        private static readonly Color Emission = new Color(0.34f, 0.04f, 0.58f);
+        // Fallbacks if the configured hex is unparseable. Deliberately NOT blue-cyan:
+        // that is the colour of Valheim's placement ghost, and a cyan chest reads as an
+        // unplaced preview rather than a real object.
+        private static readonly Color FallbackTint = new Color(0.29f, 0.25f, 0.18f);
+        private static readonly Color FallbackGlow = new Color(0.78f, 0.85f, 0.24f);
+
+        private static Color ReadColour(string hex, Color fallback)
+        {
+            if (!string.IsNullOrWhiteSpace(hex) && ColorUtility.TryParseHtmlString(hex.Trim(), out var parsed))
+            {
+                return parsed;
+            }
+
+            Plugin.Log.LogWarning($"Could not read colour '{hex}'; using the default instead.");
+            return fallback;
+        }
 
         // All six renderers share one material (BlackMetalChest_mat, shader Custom/Piece),
         // so parts can only be told apart by renderer name. Glowing just the lid reads as
         // deliberate; glowing everything looks like the chest was dipped in paint.
-        private const string LidMarker = "top_";
+        private static readonly string[] LidMarkers = { "top", "lid", "open", "closed" };
 
         internal static void Register()
         {
@@ -70,12 +84,24 @@ namespace BottomlessChest.Piece
                 if (container != null)
                 {
                     container.m_name = DisplayNameToken;
+
+                    // The personal chest is Private, which restricts CheckAccess to the
+                    // creator. Inheriting that would make the chest unopenable by anyone
+                    // else on a server, so ownership is reset to Public regardless of base.
+                    if (container.m_privacy != Container.PrivacySetting.Public)
+                    {
+                        Plugin.Log.LogInfo(
+                            $"Base prefab '{BasePrefabName}' is {container.m_privacy}; forcing Public so " +
+                            "other players can use the chest.");
+                        container.m_privacy = Container.PrivacySetting.Public;
+                    }
                 }
                 else
                 {
                     Plugin.Log.LogWarning("Cloned chest has no Container component; its name will be wrong.");
                 }
 
+                ApplyScale(piece.PiecePrefab);
                 ApplyTint(piece.PiecePrefab);
                 piece.PiecePrefab.AddComponent<Core.BottomlessContainer>();
                 PieceManager.Instance.AddPiece(piece);
@@ -89,6 +115,31 @@ namespace BottomlessChest.Piece
         }
 
         /// <summary>
+        /// Resizes the whole prefab uniformly.
+        /// </summary>
+        /// <remarks>
+        /// Scaling the root scales its colliders too, so placement and the hover raycast
+        /// follow the visible model rather than drifting out of alignment.
+        /// </remarks>
+        private static void ApplyScale(GameObject prefab)
+        {
+            var scale = Settings.ModConfig.ModelScale.Value;
+            if (Mathf.Approximately(scale, 1f))
+            {
+                return;
+            }
+
+            // Multiply, never assign. Assigning Vector3.one * scale throws away whatever
+            // scale the vanilla prefab shipped with, which silently changes its proportions
+            // on top of the resize the player asked for.
+            var original = prefab.transform.localScale;
+            prefab.transform.localScale = original * scale;
+
+            Plugin.Log.LogInfo(
+                $"Chest model scaled by {scale:0.##}x: {original} -> {prefab.transform.localScale}.");
+        }
+
+        /// <summary>
         /// Gives the clone its own look: a faint violet cast with an emissive glow.
         /// </summary>
         /// <remarks>
@@ -98,6 +149,10 @@ namespace BottomlessChest.Piece
         /// </remarks>
         private static void ApplyTint(GameObject prefab)
         {
+            var tint = ReadColour(Settings.ModConfig.BodyTint.Value, FallbackTint);
+            var glow = ReadColour(Settings.ModConfig.GlowColour.Value, FallbackGlow)
+                       * Settings.ModConfig.GlowStrength.Value;
+
             var described = new List<string>();
 
             foreach (var renderer in prefab.GetComponentsInChildren<Renderer>(true))
@@ -117,14 +172,17 @@ namespace BottomlessChest.Piece
 
                     if (material.HasProperty("_Color"))
                     {
-                        material.SetColor("_Color", material.GetColor("_Color") * Tint);
+                        material.SetColor("_Color", material.GetColor("_Color") * tint);
                     }
 
-                    var isLid = renderer.name.IndexOf(LidMarker, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    var isLid = System.Array.Exists(
+                        LidMarkers,
+                        marker => renderer.name.IndexOf(marker, System.StringComparison.OrdinalIgnoreCase) >= 0);
+
                     if (isLid && material.HasProperty("_EmissionColor"))
                     {
                         material.EnableKeyword("_EMISSION");
-                        material.SetColor("_EmissionColor", Emission);
+                        material.SetColor("_EmissionColor", glow);
                     }
 
                     copies[i] = material;
@@ -133,7 +191,7 @@ namespace BottomlessChest.Piece
                 renderer.sharedMaterials = copies;
             }
 
-            Plugin.Log.LogDebug($"Chest renderers: {string.Join(", ", described)}");
+            Plugin.Log.LogInfo($"Chest renderers: {string.Join(", ", described)}");
         }
     }
 }

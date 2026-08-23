@@ -27,6 +27,7 @@ namespace BottomlessChest.Storage
         private readonly Dictionary<string, Entry> _entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
         private string _loadedWorld;
         private bool _dirty;
+        private bool _warnedNotAuthority;
 
         internal static SidecarStore Instance { get; } = new SidecarStore();
 
@@ -36,10 +37,34 @@ namespace BottomlessChest.Storage
         /// True once this world's file has been read, so an absent entry means "no such
         /// chest" rather than "not looked yet".
         /// </summary>
+        /// <summary>
+        /// Whether this process owns the store file.
+        /// </summary>
+        /// <remarks>
+        /// Only the server may touch it. Valheim hands ZDO ownership of a container to
+        /// whoever opens it, so on a dedicated server a client would otherwise run
+        /// Container.Save and write chest contents into a file beside its own local world -
+        /// inventing a store the server never sees. Until the RPC layer exists, clients stay
+        /// inert: IsReady is false, so nothing loads and the save guard refuses to write.
+        /// </remarks>
+        internal static bool IsServerAuthority
+        {
+            get
+            {
+                var net = ZNet.instance;
+                return net == null || net.IsServer();
+            }
+        }
+
         public bool IsReady
         {
             get
             {
+                if (!IsServerAuthority)
+                {
+                    return false;
+                }
+
                 EnsureLoaded();
                 var world = ZNet.m_world;
                 return world != null && _loadedWorld == world.m_fileName;
@@ -118,6 +143,20 @@ namespace BottomlessChest.Storage
         /// </remarks>
         private void EnsureLoaded()
         {
+            if (!IsServerAuthority)
+            {
+                if (!_warnedNotAuthority)
+                {
+                    _warnedNotAuthority = true;
+                    Plugin.Log.LogWarning(
+                        "Connected to a remote server. Chest contents live on the server and " +
+                        "client-side sync is not implemented yet, so chests will read as empty " +
+                        "here. Nothing is written locally and nothing stored is at risk.");
+                }
+
+                return;
+            }
+
             var world = ZNet.m_world;
             if (world == null)
             {

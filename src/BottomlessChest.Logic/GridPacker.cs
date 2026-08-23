@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace BottomlessChest.Logic
 {
@@ -56,6 +57,46 @@ namespace BottomlessChest.Logic
             var floor = minRows < 1 ? 1 : minRows;
 
             return needed > floor ? needed : floor;
+        }
+
+        /// <summary>
+        /// Whether an existing layout can be shown as-is in a width x rows window.
+        /// </summary>
+        /// <remarks>
+        /// Used to leave an existing layout alone. Any arrangement counts as usable so long
+        /// as every item is visible and no two share a slot - so a sort applied by another
+        /// mod survives instead of being overwritten on the next redraw.
+        /// </remarks>
+        public static bool LayoutFitsWindow(IReadOnlyList<GridPos> positions, int width, int rows)
+        {
+            RequirePositiveWidth(width);
+
+            if (rows < 1 || positions == null)
+            {
+                return false;
+            }
+
+            if (positions.Count > width * rows)
+            {
+                return false;
+            }
+
+            var occupied = new HashSet<int>();
+
+            foreach (var pos in positions)
+            {
+                if (pos.X < 0 || pos.X >= width || pos.Y < 0 || pos.Y >= rows)
+                {
+                    return false;
+                }
+
+                if (!occupied.Add((pos.Y * width) + pos.X))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static void RequirePositiveWidth(int width)

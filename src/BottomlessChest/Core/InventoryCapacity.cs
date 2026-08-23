@@ -49,6 +49,24 @@ namespace BottomlessChest.Core
         /// simply does not draw them - they look lost while sitting safely in the store.
         /// Packing on load makes the count-based height exact.
         /// </remarks>
+        /// <summary>Whether the current layout can be shown untouched in one window.</summary>
+        internal static bool LayoutIsUsable(Inventory inventory, int rows)
+        {
+            var width = ModConfig.GridWidth.Value;
+            if (width < 1)
+            {
+                width = 1;
+            }
+
+            var positions = new List<GridPos>(inventory.m_inventory.Count);
+            foreach (var item in inventory.m_inventory)
+            {
+                positions.Add(new GridPos(item.m_gridPos.x, item.m_gridPos.y));
+            }
+
+            return GridPacker.LayoutFitsWindow(positions, width, rows);
+        }
+
         internal static void Repack(Inventory inventory)
         {
             var width = ModConfig.GridWidth.Value;
@@ -73,7 +91,21 @@ namespace BottomlessChest.Core
                 width = 1;
             }
 
-            var rows = GridPacker.RowsForChest(inventory.m_inventory.Count, width, ModConfig.MinRows.Value);
+            // While a chest is open its hidden items are parked below the visible window,
+            // so the grid must be tall enough for the window plus everything parked under it.
+            var reserved = Filter.ChestView.IsOpen ? Filter.ChestView.WindowSlots : 0;
+            var rows = GridPacker.RowsForChest(inventory.m_inventory.Count + reserved, width, ModConfig.MinRows.Value);
+
+            // Positions are not always ours - another mod may have sorted the chest - so the
+            // grid has to be tall enough for wherever the items actually are. An item below
+            // the last row is simply never drawn.
+            foreach (var item in inventory.m_inventory)
+            {
+                if (item.m_gridPos.y >= rows)
+                {
+                    rows = item.m_gridPos.y + 1;
+                }
+            }
 
             var cap = ModConfig.MaxItemEntries.Value;
             if (cap > 0)
@@ -123,7 +155,7 @@ namespace BottomlessChest.Core
                 if (Unbounded.Contains(__instance))
                 {
                     Apply(__instance);
-                    Filter.ChestFilter.OnInventoryChanged(__instance);
+                    Filter.ChestView.OnInventoryChanged(__instance);
                 }
             }
         }

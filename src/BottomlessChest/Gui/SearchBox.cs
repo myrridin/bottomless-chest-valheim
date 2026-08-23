@@ -30,7 +30,7 @@ namespace BottomlessChest.Gui
                 // Order matters: Teardown clears filter state, so it has to happen before
                 // Begin, never after.
                 Teardown();
-                ChestFilter.Begin(container.GetInventory());
+                ChestView.Begin(container.GetInventory());
                 Build(__instance);
             }
         }
@@ -90,6 +90,7 @@ namespace BottomlessChest.Gui
 
                 _input.onValueChanged.AddListener(OnChanged);
                 _field.AddComponent<SearchFocusGuard>();
+                _field.AddComponent<ChestScroller>();
 
                 // Drawn above the panel it belongs to, so it can end up underneath a
                 // neighbouring panel's raycast target - visible, but never clickable.
@@ -102,7 +103,7 @@ namespace BottomlessChest.Gui
 
                 Plugin.Log.LogInfo(
                     $"Search box ready (parent '{gui.m_container.name}', " +
-                    $"{ChestFilter.TotalCount} items in chest).");
+                    $"{ChestView.TotalCount} items in chest).");
 
                 _status = GUIManager.Instance.CreateText(
                     text: string.Empty,
@@ -139,7 +140,7 @@ namespace BottomlessChest.Gui
         {
             try
             {
-                ChestFilter.SetQuery(text);
+                ChestView.SetQuery(text);
                 UpdateStatus();
             }
             catch (System.Exception ex)
@@ -156,15 +157,22 @@ namespace BottomlessChest.Gui
                 return;
             }
 
-            _status.text = ChestFilter.IsActive
-                ? $"{ChestFilter.MatchCount} of {ChestFilter.TotalCount} items"
-                : $"{ChestFilter.TotalCount} items";
+            var shown = ChestView.IsFiltering
+                ? $"{ChestView.MatchCount} of {ChestView.TotalCount} items"
+                : $"{ChestView.TotalCount} items";
+
+            var rows = ChestView.TotalRows;
+            var visible = ChestView.VisibleRows;
+
+            _status.text = rows > visible
+                ? $"{shown}   -   rows {ChestView.ScrollRow + 1}-{Mathf.Min(ChestView.ScrollRow + visible, rows)} of {rows}"
+                : shown;
         }
 
         private static void Teardown()
         {
             DestroyWidgets();
-            ChestFilter.End();
+            ChestView.End();
         }
 
         private static void DestroyWidgets()

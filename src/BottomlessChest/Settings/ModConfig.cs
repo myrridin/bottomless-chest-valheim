@@ -13,10 +13,12 @@ namespace BottomlessChest.Settings
         internal static ConfigEntry<int> GridWidth;
         internal static ConfigEntry<int> VisibleRows;
         internal static ConfigEntry<int> MinRows;
-        internal static ConfigEntry<bool> UnlimitedStacks;
-        internal static ConfigEntry<int> MaxStackMultiplier;
         internal static ConfigEntry<int> MaxItemEntries;
         internal static ConfigEntry<string> RecipeRequirements;
+        internal static ConfigEntry<float> ModelScale;
+        internal static ConfigEntry<string> BodyTint;
+        internal static ConfigEntry<string> GlowColour;
+        internal static ConfigEntry<float> GlowStrength;
 
         internal static void Bind(ConfigFile cfg)
         {
@@ -24,23 +26,33 @@ namespace BottomlessChest.Settings
                 "How many columns the chest window shows. Purely visual; capacity is unbounded either way.");
 
             VisibleRows = cfg.Bind("Storage", "VisibleRows", 6,
-                "How many rows are visible before the contents start scrolling.");
+                "How many rows of the chest are shown at once. The grid stays this size no " +
+                "matter how much the chest holds; the mouse wheel scrolls through the rest.");
 
             MinRows = cfg.Bind("Storage", "MinRows", 4,
                 "Rows the chest shows even when empty, so a new chest does not look like a single slot.");
 
-            UnlimitedStacks = cfg.Bind("Storage", "UnlimitedStacks", true,
-                "Merge stackable items into a single unbounded stack inside the chest. " +
-                "Stacks are always split back down to vanilla-legal sizes on the way out, " +
-                "so nothing illegal can end up in a player inventory or a vanilla chest.");
-
-            MaxStackMultiplier = cfg.Bind("Storage", "MaxStackMultiplier", 100,
-                new ConfigDescription(
-                    "Stack cap as a multiple of the item's vanilla max stack size. Ignored when UnlimitedStacks is true.",
-                    new AcceptableValueRange<int>(1, 100000)));
-
             MaxItemEntries = cfg.Bind("Storage", "MaxItemEntries", 0,
                 "Safety valve: refuse to store more than this many distinct entries in one chest. 0 means no limit.");
+
+            ModelScale = cfg.Bind("Appearance", "ModelScale", 1.0f,
+                new ConfigDescription(
+                    "Scale multiplier on the chest model, relative to the vanilla personal " +
+                    "chest - which is already small. Colliders scale too, so low values make " +
+                    "it fiddly to click. Requires a restart.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
+
+            BodyTint = cfg.Bind("Appearance", "BodyTint", "#4A3F2E",
+                "Hex colour multiplied over the chest body. Darker values read as a solid " +
+                "object; avoid blue-cyan, which is the colour of the placement ghost.");
+
+            GlowColour = cfg.Bind("Appearance", "GlowColour", "#C8D93C",
+                "Hex colour of the emissive glow on the chest lid.");
+
+            GlowStrength = cfg.Bind("Appearance", "GlowStrength", 1.4f,
+                new ConfigDescription(
+                    "Multiplier on the glow. Above 1 pushes it into bloom.",
+                    new AcceptableValueRange<float>(0f, 5f)));
 
             RecipeRequirements = cfg.Bind("Crafting", "Requirements", "FineWood:20,BlackMetal:10,SurtlingCore:5",
                 "Build cost, as Item:Amount pairs separated by commas. Item names are prefab names, not display names.");
