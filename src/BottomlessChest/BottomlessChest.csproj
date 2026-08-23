@@ -56,6 +56,16 @@
     <Message Condition="'@(_DeployedFiles)' != ''" Importance="high" Text="Deployed $(AssemblyName).dll -> $(DeployDir)" />
     <Warning Condition="'@(_DeployedFiles)' == ''" Code="BC0001"
              Text="DEPLOY SKIPPED - Valheim is running and holds the plugin DLL. Quit the game, then rebuild." />
+
+    <!-- Mirror to the dedicated server if BepInEx has been set up there. Skipped silently
+         when it has not, so a client-only machine builds without noise. -->
+    <MakeDir Condition="Exists('$(SERVER_INSTALL)\BepInEx\plugins')" Directories="$(ServerDeployDir)" />
+    <Copy Condition="Exists('$(SERVER_INSTALL)\BepInEx\plugins')"
+          SourceFiles="$(TargetPath);$(TargetDir)BottomlessChest.Logic.dll"
+          DestinationFolder="$(ServerDeployDir)" Retries="0" ContinueOnError="true">
+      <Output TaskParameter="CopiedFiles" ItemName="_ServerDeployed" />
+    </Copy>
+    <Message Condition="'@(_ServerDeployed)' != ''" Importance="high" Text="Deployed to dedicated server -> $(ServerDeployDir)" />
   </Target>
 
 </Project>

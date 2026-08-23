@@ -10,6 +10,11 @@
     <BepInExCore>$(R2_PROFILE)\BepInEx\core</BepInExCore>
     <JotunnDir>$(R2_PROFILE)\BepInEx\plugins\ValheimModding-Jotunn</JotunnDir>
     <DeployDir>$(R2_PROFILE)\BepInEx\plugins\BottomlessChest</DeployDir>
+
+    <!-- Dedicated server (Steam app 896660). Deployed to as well, so client and server
+         never drift out of version with each other. -->
+    <SERVER_INSTALL Condition="'$(SERVER_INSTALL)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Valheim dedicated server</SERVER_INSTALL>
+    <ServerDeployDir>$(SERVER_INSTALL)\BepInEx\plugins\BottomlessChest</ServerDeployDir>
   </PropertyGroup>
 
 </Project>
