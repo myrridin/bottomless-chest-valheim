@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Deliberately references nothing. Every rule in here must be expressible without
+       Unity or Valheim types, which is what makes it testable outside the game. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>BottomlessChest.Logic</AssemblyName>
+    <RootNamespace>BottomlessChest.Logic</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+</Project>

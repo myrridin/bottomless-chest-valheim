@@ -1,0 +1,15 @@
+<Project>
+
+  <!-- Local machine paths. Override with environment variables of the same name
+       if your install differs. -->
+  <PropertyGroup>
+    <VALHEIM_INSTALL Condition="'$(VALHEIM_INSTALL)' == ''">E:\SteamLibrary\steamapps\common\Valheim</VALHEIM_INSTALL>
+    <R2_PROFILE Condition="'$(R2_PROFILE)' == ''">C:\Users\myrri\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\BottomlessChest Development</R2_PROFILE>
+
+    <ValheimManaged>$(VALHEIM_INSTALL)\valheim_Data\Managed</ValheimManaged>
+    <BepInExCore>$(R2_PROFILE)\BepInEx\core</BepInExCore>
+    <JotunnDir>$(R2_PROFILE)\BepInEx\plugins\ValheimModding-Jotunn</JotunnDir>
+    <DeployDir>$(R2_PROFILE)\BepInEx\plugins\BottomlessChest</DeployDir>
+  </PropertyGroup>
+
+</Project>

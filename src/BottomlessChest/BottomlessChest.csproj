@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>BottomlessChest</AssemblyName>
+    <RootNamespace>BottomlessChest</RootNamespace>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <!-- Valheim's Mono runtime resolves these itself; do not copy them next to us. -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <DebugType>portable</DebugType>
+    <!-- Unity/BepInEx assemblies are not deterministic-friendly; keep restore quiet. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Game assemblies we need private members of. -->
+  <ItemGroup>
+    <Reference Include="$(ValheimManaged)\assembly_valheim.dll" Publicize="true" Private="false" />
+    <Reference Include="$(ValheimManaged)\assembly_utils.dll" Publicize="true" Private="false" />
+    <Reference Include="$(ValheimManaged)\assembly_guiutils.dll" Publicize="true" Private="false" />
+  </ItemGroup>
+
+  <!-- Unity engine assemblies. Referenced wholesale: cheap, and it avoids a rebuild
+       every time we touch a new Unity subsystem. None are copied to output. -->
+  <ItemGroup>
+    <UnityAssembly Include="$(ValheimManaged)\UnityEngine*.dll" />
+    <UnityAssembly Include="$(ValheimManaged)\Unity.TextMeshPro.dll" />
+    <Reference Include="@(UnityAssembly)" Private="false" />
+  </ItemGroup>
+
+  <!-- Loader and library. Both are supplied at runtime by the r2modman profile. -->
+  <ItemGroup>
+    <Reference Include="$(BepInExCore)\BepInEx.dll" Private="false" />
+    <Reference Include="$(BepInExCore)\0Harmony.dll" Private="false" />
+    <Reference Include="$(JotunnDir)\Jotunn.dll" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BottomlessChest.Logic\BottomlessChest.Logic.csproj" />
+  </ItemGroup>
+
+  <Target Name="DeployToProfile" AfterTargets="Build" Condition="'$(DeployDir)' != '' AND Exists('$(R2_PROFILE)')">
+    <MakeDir Directories="$(DeployDir)" />
+    <!-- Retries="0": while Valheim is running it holds a mapped section on the DLL and the
+         copy can never succeed, so retrying just buries the real reason in warnings. -->
+    <Copy SourceFiles="$(TargetPath);$(TargetDir)$(AssemblyName).pdb;$(TargetDir)BottomlessChest.Logic.dll"
+          DestinationFolder="$(DeployDir)" Retries="0" ContinueOnError="true">
+      <Output TaskParameter="CopiedFiles" ItemName="_DeployedFiles" />
+    </Copy>
+    <Message Condition="'@(_DeployedFiles)' != ''" Importance="high" Text="Deployed $(AssemblyName).dll -> $(DeployDir)" />
+    <Warning Condition="'@(_DeployedFiles)' == ''" Code="BC0001"
+             Text="DEPLOY SKIPPED - Valheim is running and holds the plugin DLL. Quit the game, then rebuild." />
+  </Target>
+
+</Project>
