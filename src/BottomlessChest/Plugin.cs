@@ -27,20 +27,93 @@ namespace BottomlessChest
 
         private Harmony _harmony;
 
+        /// <summary>True when patching failed and chests fall back to vanilla behaviour.</summary>
+        internal static bool Degraded { get; private set; }
+
+        /// <summary>
+        /// Starts the mod, in an order chosen so that a failure cannot destroy save data.
+        /// </summary>
+        /// <remarks>
+        /// Registering the prefab comes first and is insulated from everything after it.
+        /// If bottomless_chest is not registered, Valheim cannot resolve the prefab for
+        /// existing chest ZDOs and deletes them - so a mistake anywhere else in startup
+        /// would take the chests with it. That is not hypothetical: an ambiguous Harmony
+        /// patch target threw here once and did exactly that.
+        ///
+        /// If patching fails we unpatch entirely and run degraded. Chests then behave as
+        /// ordinary vanilla containers, which is wrong but harmless, and the sidecar file
+        /// keeps their real contents safe on disk until the mod works again.
+        /// </remarks>
         private void Awake()
         {
             Log = Logger;
-            _harmony = new Harmony(PluginGuid);
-            _harmony.PatchAll(typeof(Plugin).Assembly);
 
-            Settings.ModConfig.Bind(Config);
-            Piece.BottomlessChestPiece.Register();
+            try
+            {
+                Settings.ModConfig.Bind(Config);
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogError($"Could not read configuration, falling back to defaults: {ex}");
+            }
 
-            Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
+            try
+            {
+                Piece.BottomlessChestPiece.Register();
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogError($"CRITICAL: the chest prefab could not be registered. " +
+                             $"Existing chests will be removed by the game. {ex}");
+            }
+
+            try
+            {
+                _harmony = new Harmony(PluginGuid);
+                _harmony.PatchAll(typeof(Plugin).Assembly);
+            }
+            catch (System.Exception ex)
+            {
+                Degraded = true;
+                Log.LogError($"Patching failed - running in degraded mode. Chests will behave " +
+                             $"as ordinary containers; their stored contents are untouched. {ex}");
+
+                try
+                {
+                    _harmony?.UnpatchSelf();
+                }
+                catch (System.Exception unpatchEx)
+                {
+                    Log.LogError($"Could not roll back partial patches: {unpatchEx}");
+                }
+            }
+
+            try
+            {
+                Jotunn.Managers.CommandManager.Instance.AddConsoleCommand(new Commands.BottomlessCommand());
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogError($"Could not register console commands: {ex}");
+            }
+
+            try
+            {
+                Storage.WorldSaveHooks.Install(Storage.SidecarStore.Instance);
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogError($"Could not hook world saving: {ex}");
+            }
+
+            Log.LogInfo($"{PluginName} {PluginVersion} loaded{(Degraded ? " (DEGRADED)" : string.Empty)}.");
         }
 
         private void OnDestroy()
         {
+            Storage.WorldSaveHooks.Uninstall();
+            Storage.SidecarStore.Instance.Flush();
+            Storage.SidecarStore.Instance.Unload();
             _harmony?.UnpatchSelf();
         }
     }

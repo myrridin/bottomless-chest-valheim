@@ -13,12 +13,18 @@ namespace BottomlessChest.Piece
     internal static class BottomlessChestPiece
     {
         internal const string PrefabName = "bottomless_chest";
+        private const string DisplayNameToken = "$piece_bottomlesschest";
         private const string BasePrefabName = "piece_chest_blackmetal";
 
         // Deliberately NOT blue-cyan: that is the colour of Valheim's translucent
         // placement ghost, and a cyan-tinted chest reads as an unplaced preview.
-        private static readonly Color Tint = new Color(0.78f, 0.72f, 0.82f);
+        private static readonly Color Tint = new Color(0.82f, 0.76f, 0.88f);
         private static readonly Color Emission = new Color(0.34f, 0.04f, 0.58f);
+
+        // All six renderers share one material (BlackMetalChest_mat, shader Custom/Piece),
+        // so parts can only be told apart by renderer name. Glowing just the lid reads as
+        // deliberate; glowing everything looks like the chest was dipped in paint.
+        private const string LidMarker = "top_";
 
         internal static void Register()
         {
@@ -27,7 +33,8 @@ namespace BottomlessChest.Piece
             localization.AddTranslation("English", new Dictionary<string, string>
             {
                 { "piece_bottomlesschest", "Bottomless Chest" },
-                { "piece_bottomlesschest_desc", "Holds everything. Type to find it again." }
+                { "piece_bottomlesschest_desc", "Holds everything. Type to find it again." },
+                { "bottomless_search", "Search..." }
             });
         }
 
@@ -41,7 +48,7 @@ namespace BottomlessChest.Piece
             {
                 var config = new PieceConfig
                 {
-                    Name = "$piece_bottomlesschest",
+                    Name = DisplayNameToken,
                     Description = "$piece_bottomlesschest_desc",
                     PieceTable = PieceTables.Hammer,
                     Category = PieceCategories.Furniture,
@@ -56,7 +63,21 @@ namespace BottomlessChest.Piece
                     return;
                 }
 
+                // PieceConfig.Name only covers the build menu. Hover text and the container
+                // window read Container.m_name, which the clone inherited from the black
+                // metal chest - so without this the chest still calls itself that.
+                var container = piece.PiecePrefab.GetComponent<Container>();
+                if (container != null)
+                {
+                    container.m_name = DisplayNameToken;
+                }
+                else
+                {
+                    Plugin.Log.LogWarning("Cloned chest has no Container component; its name will be wrong.");
+                }
+
                 ApplyTint(piece.PiecePrefab);
+                piece.PiecePrefab.AddComponent<Core.BottomlessContainer>();
                 PieceManager.Instance.AddPiece(piece);
 
                 Plugin.Log.LogInfo($"Registered piece '{PrefabName}'.");
@@ -99,7 +120,8 @@ namespace BottomlessChest.Piece
                         material.SetColor("_Color", material.GetColor("_Color") * Tint);
                     }
 
-                    if (material.HasProperty("_EmissionColor"))
+                    var isLid = renderer.name.IndexOf(LidMarker, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (isLid && material.HasProperty("_EmissionColor"))
                     {
                         material.EnableKeyword("_EMISSION");
                         material.SetColor("_EmissionColor", Emission);
@@ -111,9 +133,7 @@ namespace BottomlessChest.Piece
                 renderer.sharedMaterials = copies;
             }
 
-            // Logged once at registration so the parts can be targeted individually later
-            // rather than restyling the whole prefab uniformly.
-            Plugin.Log.LogInfo($"Chest renderers: {string.Join(", ", described)}");
+            Plugin.Log.LogDebug($"Chest renderers: {string.Join(", ", described)}");
         }
     }
 }

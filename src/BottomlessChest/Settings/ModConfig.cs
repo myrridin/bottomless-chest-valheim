@@ -12,6 +12,7 @@ namespace BottomlessChest.Settings
     {
         internal static ConfigEntry<int> GridWidth;
         internal static ConfigEntry<int> VisibleRows;
+        internal static ConfigEntry<int> MinRows;
         internal static ConfigEntry<bool> UnlimitedStacks;
         internal static ConfigEntry<int> MaxStackMultiplier;
         internal static ConfigEntry<int> MaxItemEntries;
@@ -24,6 +25,9 @@ namespace BottomlessChest.Settings
 
             VisibleRows = cfg.Bind("Storage", "VisibleRows", 6,
                 "How many rows are visible before the contents start scrolling.");
+
+            MinRows = cfg.Bind("Storage", "MinRows", 4,
+                "Rows the chest shows even when empty, so a new chest does not look like a single slot.");
 
             UnlimitedStacks = cfg.Bind("Storage", "UnlimitedStacks", true,
                 "Merge stackable items into a single unbounded stack inside the chest. " +

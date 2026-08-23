@@ -42,6 +42,22 @@ namespace BottomlessChest.Logic
             return count <= 0 ? 0 : ((count - 1) / width) + 1;
         }
 
+        /// <summary>How many rows the chest window should offer for a given item count.</summary>
+        /// <remarks>
+        /// Always leaves one empty row beyond the contents. Valheim decides an inventory is
+        /// full by comparing item count against width*height and checks that before
+        /// inserting, so the spare row is precisely what makes slots unbounded.
+        /// </remarks>
+        public static int RowsForChest(int count, int width, int minRows)
+        {
+            RequirePositiveWidth(width);
+
+            var needed = RowsNeeded(count, width) + 1;
+            var floor = minRows < 1 ? 1 : minRows;
+
+            return needed > floor ? needed : floor;
+        }
+
         private static void RequirePositiveWidth(int width)
         {
             if (width <= 0)
