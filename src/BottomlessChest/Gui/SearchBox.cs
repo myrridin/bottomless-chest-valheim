@@ -38,7 +38,11 @@ namespace BottomlessChest.Gui
         [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Hide))]
         private static class HidePatch
         {
-            private static void Postfix() => Teardown();
+            private static void Postfix()
+            {
+                Teardown();
+                BottomlessContainer.FlushAllPending();
+            }
         }
 
         private static void Build(InventoryGui gui)

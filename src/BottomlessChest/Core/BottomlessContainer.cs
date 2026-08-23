@@ -31,11 +31,39 @@ namespace BottomlessChest.Core
         private ZNetView _nview;
         private bool _contentsLoaded;
         private bool _warnedAboutUnloadedSave;
+        private bool _pendingSnapshot;
+        private float _lastChangeAt;
+        private float _lastRequestAt;
 
         internal static bool TryResolve(Container container, out BottomlessContainer bottomless) =>
             Registry.TryGetValue(container, out bottomless);
 
         internal static IEnumerable<BottomlessContainer> Loaded => Registry.Values;
+
+        /// <summary>Finds a loaded chest by its store id, for routing RPC replies.</summary>
+        internal static bool TryResolveByStoreId(string storeId, out BottomlessContainer found)
+        {
+            foreach (var candidate in Registry.Values)
+            {
+                if (candidate.CurrentStoreId == storeId)
+                {
+                    found = candidate;
+                    return true;
+                }
+            }
+
+            found = null;
+            return false;
+        }
+
+        /// <summary>Sends any debounced snapshot immediately, e.g. when the chest is closed.</summary>
+        internal static void FlushAllPending()
+        {
+            foreach (var container in Registry.Values)
+            {
+                container.FlushSnapshot();
+            }
+        }
 
         internal Vector3 Position => transform.position;
 
@@ -105,6 +133,8 @@ namespace BottomlessChest.Core
 
         private void OnDestroy()
         {
+            FlushSnapshot();
+
             if (_container != null)
             {
                 InventoryCapacity.Forget(_container.m_inventory);
@@ -213,9 +243,107 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            if (!SidecarStore.IsServerAuthority)
+            {
+                // Debounced: dragging a stack fires several changes, and each would
+                // otherwise be a full inventory snapshot over the wire.
+                _pendingSnapshot = true;
+                _lastChangeAt = Time.realtimeSinceStartup;
+                return;
+            }
+
             var package = new ZPackage();
             _container.m_inventory.Save(package);
             SidecarStore.Instance.Put(storeId, package.GetArray());
+        }
+
+        private void Update()
+        {
+            if (!_pendingSnapshot)
+            {
+                return;
+            }
+
+            if (Time.realtimeSinceStartup - _lastChangeAt < Settings.ModConfig.SnapshotDebounceSeconds.Value)
+            {
+                return;
+            }
+
+            FlushSnapshot();
+        }
+
+        private void FlushSnapshot()
+        {
+            if (!_pendingSnapshot || !_contentsLoaded)
+            {
+                return;
+            }
+
+            _pendingSnapshot = false;
+
+            var storeId = CurrentStoreId;
+            if (string.IsNullOrEmpty(storeId))
+            {
+                return;
+            }
+
+            var package = new ZPackage();
+            _container.m_inventory.Save(package);
+            Net.ChestRpc.SendSnapshot(storeId, package.GetArray());
+        }
+
+        /// <summary>Asks the server for this chest's contents, at most once every few seconds.</summary>
+        private void RequestFromServer(string storeId)
+        {
+            if (!Net.ChestRpc.Ready)
+            {
+                return;
+            }
+
+            var now = Time.realtimeSinceStartup;
+            if (now - _lastRequestAt < 3f)
+            {
+                return;
+            }
+
+            _lastRequestAt = now;
+            Net.ChestRpc.RequestContents(storeId);
+        }
+
+        /// <summary>Applies contents received over the network.</summary>
+        internal void ApplyRemoteContents(byte[] contents)
+        {
+            if (_container == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _container.m_loading = true;
+                _container.m_inventory.RemoveAll();
+
+                if (contents != null && contents.Length > 0)
+                {
+                    _container.m_inventory.Load(new ZPackage(contents));
+                }
+
+                InventoryCapacity.Repack(_container.m_inventory);
+                InventoryCapacity.Apply(_container.m_inventory);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogError($"Could not apply contents received for a chest: {ex}");
+                return;
+            }
+            finally
+            {
+                _container.m_loading = false;
+            }
+
+            // Only now is it safe to save: we have something real to save over.
+            _contentsLoaded = true;
+            _warnedAboutUnloadedSave = false;
         }
 
         /// <summary>
@@ -232,6 +360,14 @@ namespace BottomlessChest.Core
             var storeId = GetOrCreateStoreId();
             if (storeId == null)
             {
+                return false;
+            }
+
+            if (!SidecarStore.IsServerAuthority)
+            {
+                // The server owns the file. Ask for the contents and stay unloaded until
+                // they arrive - which also keeps the save guard engaged in the meantime.
+                RequestFromServer(storeId);
                 return false;
             }
 

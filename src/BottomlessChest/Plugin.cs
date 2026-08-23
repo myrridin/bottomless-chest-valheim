@@ -90,6 +90,15 @@ namespace BottomlessChest
 
             try
             {
+                Net.ChestRpc.Register();
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogError($"Could not register networking; multiplayer chests will not sync: {ex}");
+            }
+
+            try
+            {
                 Jotunn.Managers.CommandManager.Instance.AddConsoleCommand(new Commands.BottomlessCommand());
             }
             catch (System.Exception ex)
