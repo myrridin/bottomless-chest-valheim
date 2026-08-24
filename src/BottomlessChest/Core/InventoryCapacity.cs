@@ -63,11 +63,7 @@ namespace BottomlessChest.Core
         /// <summary>Whether the current layout can be shown untouched in one window.</summary>
         internal static bool LayoutIsUsable(Inventory inventory, int rows)
         {
-            var width = ModConfig.GridWidth.Value;
-            if (width < 1)
-            {
-                width = 1;
-            }
+            var width = Filter.ChestView.Width;
 
             // Cheap disqualifier first: a chest that cannot fit in one window never needs
             // the per-item check, and at ten thousand stacks that list was being built on
@@ -88,11 +84,7 @@ namespace BottomlessChest.Core
 
         internal static void Repack(Inventory inventory)
         {
-            var width = ModConfig.GridWidth.Value;
-            if (width < 1)
-            {
-                width = 1;
-            }
+            var width = Filter.ChestView.Width;
 
             var items = inventory.m_inventory;
             for (var i = 0; i < items.Count; i++)
@@ -114,16 +106,14 @@ namespace BottomlessChest.Core
         /// </remarks>
         internal static void ApplyFor(Inventory inventory, int count)
         {
-            var width = ModConfig.GridWidth.Value;
-            if (width < 1)
-            {
-                width = 1;
-            }
+            var width = Filter.ChestView.Width;
 
             // While a chest is open its hidden items are parked below the visible window,
             // so the grid must be tall enough for the window plus everything parked under it.
             var reserved = Filter.ChestView.WindowSlots;
-            var rows = GridPacker.RowsForChest(count + reserved, width, ModConfig.MinRows.Value);
+            // The window height is the only meaningful floor now: the real inventory never
+            // needs fewer rows than the view can show.
+            var rows = GridPacker.RowsForChest(count + reserved, width, Filter.ChestView.VisibleRows);
 
             // Positions are not always ours - another mod may have sorted the chest - so the
             // grid has to be tall enough for wherever the items actually are. An item below
@@ -133,16 +123,6 @@ namespace BottomlessChest.Core
                 if (item.m_gridPos.y >= rows)
                 {
                     rows = item.m_gridPos.y + 1;
-                }
-            }
-
-            var cap = ModConfig.MaxItemEntries.Value;
-            if (cap > 0)
-            {
-                var maxRows = GridPacker.RowsNeeded(cap, width);
-                if (rows > maxRows)
-                {
-                    rows = maxRows;
                 }
             }
 

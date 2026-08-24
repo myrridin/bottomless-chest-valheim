@@ -470,7 +470,7 @@ namespace BottomlessChest.Core
             var count = _container.m_inventory.m_inventory.Count;
             if (count >= 1000)
             {
-                Plugin.Log.LogInfo(
+                Plugin.Log.LogDebug(
                     $"Applied {count} stacks in {timer.ElapsedMilliseconds}ms " +
                     $"(deserialise {loaded}ms, layout {repacked - loaded}ms, rest {timer.ElapsedMilliseconds - repacked}ms).");
             }

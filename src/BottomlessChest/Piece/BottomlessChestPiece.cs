@@ -191,7 +191,7 @@ namespace BottomlessChest.Piece
                 renderer.sharedMaterials = copies;
             }
 
-            Plugin.Log.LogInfo($"Chest renderers: {string.Join(", ", described)}");
+            Plugin.Log.LogDebug($"Chest renderers: {string.Join(", ", described)}");
         }
     }
 }

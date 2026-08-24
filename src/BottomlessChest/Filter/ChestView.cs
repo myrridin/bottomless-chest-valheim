@@ -53,25 +53,19 @@ namespace BottomlessChest.Filter
 
         internal static bool IsOpen => _target != null;
 
-        internal static int TotalRows => Width < 1 ? 0 : GridPacker.RowsNeeded(_matchCount, Width);
+        internal static int TotalRows => GridPacker.RowsNeeded(_matchCount, Width);
 
-        internal static int VisibleRows
-        {
-            get
-            {
-                var rows = ModConfig.VisibleRows.Value;
-                return rows < 1 ? 1 : rows;
-            }
-        }
+        /// <summary>
+        /// Grid dimensions of the chest window.
+        /// </summary>
+        /// <remarks>
+        /// Fixed rather than configurable: Valheim's container panel is a fixed size that
+        /// nothing resizes, so other values overflow the window rather than enlarging it.
+        /// Eight wide matches a vanilla chest.
+        /// </remarks>
+        internal const int Width = 8;
 
-        private static int Width
-        {
-            get
-            {
-                var width = ModConfig.GridWidth.Value;
-                return width < 1 ? 1 : width;
-            }
-        }
+        internal const int VisibleRows = 6;
 
         /// <summary>Slots reserved for the window, which hidden items are placed after.</summary>
         internal static int WindowSlots => Width * VisibleRows;
@@ -212,13 +206,10 @@ namespace BottomlessChest.Filter
                     }
                 }
 
-                if (ModConfig.SortFilteredResults.Value)
-                {
-                    // Only the matches are sorted. Leaving the remainder alone means an
-                    // order applied by another mod survives once the filter is cleared.
-                    matched.Sort((left, right) =>
-                        ItemOrdering.ByName.Compare(new ItemAdapter(left), new ItemAdapter(right)));
-                }
+                // Only the matches are sorted. Leaving the remainder alone means an order
+                // applied by another mod survives once the filter is cleared.
+                matched.Sort((left, right) =>
+                    ItemOrdering.ByName.Compare(new ItemAdapter(left), new ItemAdapter(right)));
 
                 _matchCount = matched.Count;
                 items.Clear();
@@ -226,7 +217,6 @@ namespace BottomlessChest.Filter
                 items.AddRange(rest);
             }
 
-            var width = Width;
             _scrollRow = Mathf.Clamp(_scrollRow, 0, MaxScrollRow());
 
             // Only rewrite positions when the window actually demands it. Repacking
@@ -244,7 +234,7 @@ namespace BottomlessChest.Filter
                 return;
             }
 
-            _windowStart = _scrollRow * width;
+            _windowStart = _scrollRow * Width;
             _windowEnd = Mathf.Min(_matchCount, _windowStart + WindowSlots);
 
             var hidden = 0;
@@ -254,13 +244,13 @@ namespace BottomlessChest.Filter
 
                 if (i >= _windowStart && i < _windowEnd)
                 {
-                    pos = GridPacker.PositionOf(i - _windowStart, width);
+                    pos = GridPacker.PositionOf(i - _windowStart, Width);
                 }
                 else
                 {
                     // Parked below the window. The view never contains these, so their exact
                     // position only has to be unique and out of the way.
-                    pos = GridPacker.PositionOf(WindowSlots + hidden++, width);
+                    pos = GridPacker.PositionOf(WindowSlots + hidden++, Width);
                 }
 
                 items[i].m_gridPos = new Vector2i(pos.X, pos.Y);
@@ -281,14 +271,12 @@ namespace BottomlessChest.Filter
         /// <summary>Builds the stand-in inventory holding just the windowed items.</summary>
         private static Inventory BuildView()
         {
-            var width = Width;
-
             if (_view == null)
             {
-                _view = new Inventory(_target.m_name, _target.m_bkg, width, VisibleRows);
+                _view = new Inventory(_target.m_name, _target.m_bkg, Width, VisibleRows);
             }
 
-            _view.m_width = width;
+            _view.m_width = Width;
             _view.m_height = VisibleRows;
 
             var items = _view.m_inventory;

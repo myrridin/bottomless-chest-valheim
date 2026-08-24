@@ -109,7 +109,7 @@ namespace BottomlessChest.Gui
                 _input.Select();
                 _input.ActivateInputField();
 
-                Plugin.Log.LogInfo(
+                Plugin.Log.LogDebug(
                     $"Search box ready (parent '{gui.m_container.name}', " +
                     $"{ChestView.TotalCount} items in chest).");
 

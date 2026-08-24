@@ -10,11 +10,6 @@ namespace BottomlessChest.Settings
     /// </summary>
     internal static class ModConfig
     {
-        internal static ConfigEntry<int> GridWidth;
-        internal static ConfigEntry<int> VisibleRows;
-        internal static ConfigEntry<int> MinRows;
-        internal static ConfigEntry<int> MaxItemEntries;
-        internal static ConfigEntry<bool> SortFilteredResults;
         internal static ConfigEntry<string> RecipeRequirements;
         internal static ConfigEntry<float> SnapshotDebounceSeconds;
         internal static ConfigEntry<float> ModelScale;
@@ -24,19 +19,6 @@ namespace BottomlessChest.Settings
 
         internal static void Bind(ConfigFile cfg)
         {
-            GridWidth = cfg.Bind("Storage", "GridWidth", 8,
-                "How many columns the chest window shows. Purely visual; capacity is unbounded either way.");
-
-            VisibleRows = cfg.Bind("Storage", "VisibleRows", 6,
-                "How many rows of the chest are shown at once. The grid stays this size no " +
-                "matter how much the chest holds; the mouse wheel scrolls through the rest.");
-
-            MinRows = cfg.Bind("Storage", "MinRows", 4,
-                "Rows the chest shows even when empty, so a new chest does not look like a single slot.");
-
-            MaxItemEntries = cfg.Bind("Storage", "MaxItemEntries", 0,
-                "Safety valve: refuse to store more than this many distinct entries in one chest. 0 means no limit.");
-
             ModelScale = cfg.Bind("Appearance", "ModelScale", 1.0f,
                 new ConfigDescription(
                     "Scale multiplier on the chest model, relative to the vanilla personal " +
@@ -62,11 +44,6 @@ namespace BottomlessChest.Settings
                     "Multiplier on the lid glow. Around 0.5 is a subtle sheen; above 1 pushes " +
                     "it into bloom and reads as a light source.",
                     new AcceptableValueRange<float>(0f, 5f)));
-
-            SortFilteredResults = cfg.Bind("Storage", "SortFilteredResults", true,
-                "Group filtered results by item name so matches clump together. Only applies " +
-                "while a search is active; an unfiltered chest keeps whatever order it has, " +
-                "so a sort applied by another mod is left alone.");
 
             RecipeRequirements = cfg.Bind("Crafting", "Requirements", "FineWood:20,BlackMetal:10,SurtlingCore:5",
                 "Build cost, as Item:Amount pairs separated by commas. Item names are prefab names, not display names.");
