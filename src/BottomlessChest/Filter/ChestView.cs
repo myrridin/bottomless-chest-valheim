@@ -38,6 +38,11 @@ namespace BottomlessChest.Filter
         private static int _windowEnd;
         private static Core.BottomlessContainer _owner;
 
+        // Reused across keystrokes: at a hundred thousand stacks, allocating two lists per
+        // character typed is a large amount of garbage for no reason.
+        private static readonly List<ItemDrop.ItemData> Matched = new List<ItemDrop.ItemData>();
+        private static readonly List<ItemDrop.ItemData> Rest = new List<ItemDrop.ItemData>();
+
         internal static int MatchCount => _matchCount;
 
         internal static int TotalCount => _target?.m_inventory.Count ?? 0;
@@ -132,6 +137,28 @@ namespace BottomlessChest.Filter
             return true;
         }
 
+        /// <summary>Scrolls to an absolute row, clamped. Returns true if the window moved.</summary>
+        internal static bool ScrollTo(int row)
+        {
+            if (_target == null)
+            {
+                return false;
+            }
+
+            var clamped = Mathf.Clamp(row, 0, MaxScrollRow());
+            if (clamped == _scrollRow)
+            {
+                return false;
+            }
+
+            _scrollRow = clamped;
+            Reapply();
+            Refresh();
+            return true;
+        }
+
+        internal static int MaxScroll => MaxScrollRow();
+
         internal static void OnInventoryChanged(Inventory inventory)
         {
             if (_target != null && ReferenceEquals(_target, inventory))
@@ -168,8 +195,10 @@ namespace BottomlessChest.Filter
             else
             {
                 var parsed = ItemQuery.Parse(_query);
-                var matched = new List<ItemDrop.ItemData>(items.Count);
-                var rest = new List<ItemDrop.ItemData>();
+                var matched = Matched;
+                var rest = Rest;
+                matched.Clear();
+                rest.Clear();
 
                 foreach (var item in items)
                 {

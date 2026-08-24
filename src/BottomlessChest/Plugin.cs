@@ -120,6 +120,7 @@ namespace BottomlessChest
 
         private void OnDestroy()
         {
+            Filter.ItemAdapter.ClearCache();
             Storage.WorldSaveHooks.Uninstall();
             Storage.SidecarStore.Instance.Flush();
             Storage.SidecarStore.Instance.Unload();

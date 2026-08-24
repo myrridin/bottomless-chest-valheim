@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BottomlessChest.Logic;
 
 namespace BottomlessChest.Filter
@@ -12,6 +13,20 @@ namespace BottomlessChest.Filter
     /// </remarks>
     internal readonly struct ItemAdapter : IStorableItem
     {
+        /// <summary>
+        /// Localized-and-normalized names, keyed by the raw localization token.
+        /// </summary>
+        /// <remarks>
+        /// A chest may hold a hundred thousand stacks of perhaps five hundred distinct
+        /// items, and every keystroke re-examines all of them. Both the localization lookup
+        /// and the Unicode normalization are far too expensive to repeat per item, and both
+        /// depend only on the token.
+        /// </remarks>
+        private static readonly Dictionary<string, string> SearchKeys =
+            new Dictionary<string, string>(512, System.StringComparer.Ordinal);
+
+        internal static void ClearCache() => SearchKeys.Clear();
+
         private readonly ItemDrop.ItemData _item;
 
         internal ItemAdapter(ItemDrop.ItemData item)
@@ -22,6 +37,27 @@ namespace BottomlessChest.Filter
         public string ItemId => _item.m_dropPrefab != null ? _item.m_dropPrefab.name : _item.m_shared.m_name;
 
         public string DisplayName => Localization.instance.Localize(_item.m_shared.m_name);
+
+        public string SearchKey
+        {
+            get
+            {
+                var token = _item.m_shared.m_name;
+                if (token == null)
+                {
+                    return string.Empty;
+                }
+
+                if (SearchKeys.TryGetValue(token, out var key))
+                {
+                    return key;
+                }
+
+                key = TextKey.Of(Localization.instance.Localize(token));
+                SearchKeys[token] = key;
+                return key;
+            }
+        }
 
         public ItemKind Kind => Classify(_item.m_shared.m_itemType);
 

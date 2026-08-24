@@ -406,7 +406,11 @@ namespace BottomlessChest.Core
 
             _container.m_inventory.RemoveAll();
             InventoryCapacity.ApplyFor(_container.m_inventory, expected);
-            _container.m_inventory.Load(new ZPackage(contents));
+
+            if (!Storage.FastInventoryReader.TryLoad(_container.m_inventory, contents, out expected))
+            {
+                _container.m_inventory.Load(new ZPackage(contents));
+            }
 
             var actual = _container.m_inventory.m_inventory.Count;
             _loadWasPartial = actual != expected;

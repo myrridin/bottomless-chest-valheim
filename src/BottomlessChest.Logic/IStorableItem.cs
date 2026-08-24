@@ -12,8 +12,19 @@ namespace BottomlessChest.Logic
         /// <summary>Stable prefab name. Identity for stacking.</summary>
         string ItemId { get; }
 
-        /// <summary>Localized name. What the player searches against.</summary>
+        /// <summary>Localized name, for display.</summary>
         string DisplayName { get; }
+
+        /// <summary>
+        /// Normalized form of <see cref="DisplayName"/>: lower-cased, diacritics stripped.
+        /// </summary>
+        /// <remarks>
+        /// Carried on the item rather than derived on demand because searching re-examines
+        /// every item on every keystroke, and sorting compares them repeatedly on top of
+        /// that. Deriving it each time meant localizing and normalizing a hundred thousand
+        /// strings per character typed.
+        /// </remarks>
+        string SearchKey { get; }
 
         ItemKind Kind { get; }
 

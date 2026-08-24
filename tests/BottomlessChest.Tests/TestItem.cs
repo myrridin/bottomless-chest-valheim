@@ -28,6 +28,8 @@ namespace BottomlessChest.Tests
 
         public string DisplayName { get; }
 
+        public string SearchKey => TextKey.Of(DisplayName);
+
         public ItemKind Kind { get; }
 
         public int Stack { get; }

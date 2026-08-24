@@ -32,7 +32,7 @@ namespace BottomlessChest.Logic
                 return 1;
             }
 
-            var byName = string.CompareOrdinal(TextKey.Of(a.DisplayName), TextKey.Of(b.DisplayName));
+            var byName = string.CompareOrdinal(a.SearchKey ?? string.Empty, b.SearchKey ?? string.Empty);
             if (byName != 0)
             {
                 return byName;

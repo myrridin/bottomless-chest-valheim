@@ -85,7 +85,7 @@ namespace BottomlessChest.Logic
                 return true;
             }
 
-            var name = TextKey.Of(item.DisplayName);
+            var name = item.SearchKey ?? string.Empty;
 
             foreach (var term in _textTerms)
             {
