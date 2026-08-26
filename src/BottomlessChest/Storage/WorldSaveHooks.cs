@@ -26,6 +26,7 @@ namespace BottomlessChest.Storage
                     // Live sessions hold the authoritative copy of any chest a player has
                     // open, so they have to be written back before the store is flushed.
                     Core.ChestSessions.PersistAll();
+                    Core.ChestSessions.ReleaseIdle(System.TimeSpan.FromMinutes(10));
                     store.Flush();
                 }
                 catch (Exception ex)

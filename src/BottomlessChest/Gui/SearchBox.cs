@@ -13,13 +13,30 @@ namespace BottomlessChest.Gui
     internal static class SearchBox
     {
         /// <summary>How far above the chest title the search box sits.</summary>
-        private const float SearchBoxLift = 14f;
+        private const float SearchBoxLift = 6f;
 
         /// <summary>Gap between the search box and the count line beneath it.</summary>
-        private const float StatusGap = 24f;
+        private const float StatusGap = 26f;
 
         private static GameObject _field;
         private static GameObject _hiddenTitle;
+
+        /// <summary>
+        /// Frame on which Escape was last seen.
+        /// </summary>
+        /// <remarks>
+        /// Vanilla closes from its own Update via ZInput, which does not necessarily report
+        /// the key on the same frame Unity does. Checking only the current frame therefore
+        /// missed it intermittently.
+        /// </remarks>
+        private static int _escapeFrame = -1000;
+
+        private const int EscapeGraceFrames = 3;
+
+        /// <summary>Set when a close was cancelled, so the teardown postfix stands down.</summary>
+        private static bool _hideCancelled;
+
+        internal static void NoteEscapePressed() => _escapeFrame = Time.frameCount;
         private static InputField _input;
         private static Text _status;
 
@@ -50,6 +67,14 @@ namespace BottomlessChest.Gui
         {
             private static void Postfix()
             {
+                // Harmony runs postfixes even when a prefix cancels the original, so without
+                // this the search box was torn down while the window stayed open.
+                if (_hideCancelled)
+                {
+                    _hideCancelled = false;
+                    return;
+                }
+
                 Teardown();
                 BottomlessContainer.FlushAllPending();
             }
@@ -157,6 +182,53 @@ namespace BottomlessChest.Gui
                 {
                     UpdateStatus();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Handles Escape when there is a search to clear, so the window stays open.
+        /// </summary>
+        /// <remarks>
+        /// Called from a prefix on InventoryGui.Hide rather than from an Update, because
+        /// vanilla closes on ZInput Escape from its own Update and the two orderings race:
+        /// Unity deactivates the field on Escape, the focus guard then unblocks input, and
+        /// whether the game sees the key depends on which Update ran first. Intercepting
+        /// the close itself has no such ambiguity.
+        /// </remarks>
+        internal static bool TryConsumeEscape()
+        {
+            if (_input == null || string.IsNullOrEmpty(_input.text))
+            {
+                return false;
+            }
+
+            var pressedNow = Input.GetKeyDown(KeyCode.Escape);
+            var pressedRecently = Time.frameCount - _escapeFrame <= EscapeGraceFrames;
+
+            if (!pressedNow && !pressedRecently)
+            {
+                return false;
+            }
+
+            _escapeFrame = -1000;
+
+            _input.text = string.Empty;
+
+            // Unity deactivated the field when it saw Escape; take focus straight back so
+            // the next keystroke still goes to the search.
+            _input.ActivateInputField();
+            _input.Select();
+
+            return true;
+        }
+
+        [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Hide))]
+        private static class EscapeGuard
+        {
+            private static bool Prefix()
+            {
+                _hideCancelled = TryConsumeEscape();
+                return !_hideCancelled;
             }
         }
 

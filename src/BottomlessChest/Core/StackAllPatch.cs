@@ -24,12 +24,14 @@ namespace BottomlessChest.Core
                     return true;
                 }
 
-                if (!BottomlessContainer.TryResolve(__instance, out _) || !ChestView.IsRemote)
+                if (!BottomlessContainer.TryResolve(__instance, out var bottomless)
+                    || Storage.SidecarStore.IsServerAuthority)
                 {
                     return true;
                 }
 
-                return !ChestView.RequestStackAll();
+                Plugin.Log.LogInfo($"Deposit requested for chest {bottomless.CurrentStoreId}.");
+                return !ChestView.RequestStackAll(bottomless.CurrentStoreId);
             }
         }
     }

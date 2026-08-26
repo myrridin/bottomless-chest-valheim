@@ -281,6 +281,10 @@ namespace BottomlessChest.Net
                 {
                     var offered = Deserialize(package.ReadByteArray());
 
+                    // Depositing works on a closed chest, so this may be the only thing
+                    // holding the session. Release it again if nobody had it open.
+                    var wasOpen = ChestSessions.TryGet(storeId, out _);
+
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
                     {
@@ -308,6 +312,10 @@ namespace BottomlessChest.Net
                         kept.Add(i);
                     }
 
+                    Plugin.Log.LogInfo(
+                        $"Deposit into {storeId}: {offered.Count} offered, {held.Count} distinct types held, " +
+                        $"{kept.Count} kept.");
+
                     if (kept.Count > 0)
                     {
                         ChestSessions.Persist(session);
@@ -323,7 +331,16 @@ namespace BottomlessChest.Net
                     }
 
                     _rpc.SendPackage(sender, stacked);
-                    SendPage(sender, session, -1);
+
+                    if (wasOpen)
+                    {
+                        SendPage(sender, session, -1);
+                    }
+                    else
+                    {
+                        ChestSessions.Release(storeId);
+                    }
+
                     break;
                 }
 

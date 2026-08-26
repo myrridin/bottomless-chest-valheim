@@ -15,6 +15,12 @@ namespace BottomlessChest.Gui
     /// open: blocking input for the entire window risks swallowing the key that closes it.
     /// Lives on the field's own GameObject so it cannot outlive it.
     /// </remarks>
+    /// <remarks>
+    /// Runs before other behaviours so that Escape is recorded before InventoryGui.Update
+    /// gets to decide whether to close. Without a fixed order the two race and Escape
+    /// closes the window despite there being a search to clear.
+    /// </remarks>
+    [DefaultExecutionOrder(-1000)]
     internal sealed class SearchFocusGuard : MonoBehaviour
     {
         private InputField _input;
@@ -38,7 +44,34 @@ namespace BottomlessChest.Gui
         /// </remarks>
         internal void TakeFocus()
         {
-            _focusAttemptsLeft = 10;
+            // Generous, because focus is deliberately withheld while the use key is still
+            // held down and a hold-to-deposit gesture can last a while.
+            _focusAttemptsLeft = 300;
+        }
+
+        /// <summary>
+        /// Whether the key that opened the chest is still being held.
+        /// </summary>
+        /// <remarks>
+        /// Holding the use key on a chest is the deposit gesture. Taking focus during it
+        /// sends the held key into the search box - the chest opens, fills the filter with
+        /// repeats of that letter, and closes again. Focus waits for the key to come up.
+        /// </remarks>
+        private static bool UseKeyHeld()
+        {
+            try
+            {
+                if (ZInput.instance != null && ZInput.GetButton("Use"))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // ZInput is not available in every context; fall through to the raw key.
+            }
+
+            return Input.GetKey(KeyCode.E);
         }
 
         private void Update()
@@ -53,7 +86,11 @@ namespace BottomlessChest.Gui
             {
                 _focusAttemptsLeft--;
 
-                if (!_input.isFocused)
+                if (UseKeyHeld())
+                {
+                    // Do not take focus mid-gesture.
+                }
+                else if (!_input.isFocused)
                 {
                     _input.Select();
                     _input.ActivateInputField();
@@ -67,6 +104,11 @@ namespace BottomlessChest.Gui
             // Unity's InputField handles Escape in its own update and deactivates itself,
             // so by the time this runs focus is already gone. Remembering last frame is what
             // makes the first press count.
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                SearchBox.NoteEscapePressed();
+            }
+
             if ((_input.isFocused || _wasFocused) && Input.GetKeyDown(KeyCode.Escape))
             {
                 _wasFocused = false;

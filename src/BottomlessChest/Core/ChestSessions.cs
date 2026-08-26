@@ -27,6 +27,7 @@ namespace BottomlessChest.Core
 
             if (Open.TryGetValue(storeId, out var existing))
             {
+                existing.MarkUsed();
                 return existing;
             }
 
@@ -78,6 +79,41 @@ namespace BottomlessChest.Core
             var package = new ZPackage();
             session.Inventory.Save(package);
             SidecarStore.Instance.Put(session.StoreId, package.GetArray());
+        }
+
+        /// <summary>
+        /// Drops sessions nobody has touched for a while.
+        /// </summary>
+        /// <remarks>
+        /// A session is normally released when the client closes the chest, but nothing
+        /// guarantees that message arrives - a crash, a lost connection or a force quit all
+        /// skip it, and the session would then hold its chest in memory for the life of the
+        /// server. Contents are written back before dropping, so expiring is lossless.
+        /// </remarks>
+        internal static void ReleaseIdle(System.TimeSpan olderThan)
+        {
+            var cutoff = System.DateTime.UtcNow - olderThan;
+            List<string> stale = null;
+
+            foreach (var pair in Open)
+            {
+                if (pair.Value.LastUsedUtc < cutoff)
+                {
+                    stale = stale ?? new List<string>();
+                    stale.Add(pair.Key);
+                }
+            }
+
+            if (stale == null)
+            {
+                return;
+            }
+
+            foreach (var storeId in stale)
+            {
+                Plugin.Log.LogInfo($"Releasing idle chest session {storeId}.");
+                Release(storeId);
+            }
         }
 
         internal static void PersistAll()

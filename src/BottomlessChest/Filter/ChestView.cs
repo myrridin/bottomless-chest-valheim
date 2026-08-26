@@ -45,7 +45,17 @@ namespace BottomlessChest.Filter
         private static int _remoteTotal;
         private static string _remoteStoreId;
         private static bool _awaitingPage;
+        /// <summary>
+        /// An item offered to a chest and awaiting the server's answer.
+        /// </summary>
+        /// <remarks>
+        /// Like the stack offer, this deliberately outlives the window. Clearing it on close
+        /// meant that closing between sending and being answered left the server holding the
+        /// item and the player holding it too.
+        /// </remarks>
         private static ItemDrop.ItemData _pendingPut;
+
+        private static float _pendingPutSentAt;
 
         /// <summary>
         /// Last known stack count per chest, so a closed chest can still be judged empty.
@@ -183,8 +193,6 @@ namespace BottomlessChest.Filter
             _remote = false;
             _awaitingPage = false;
             _remoteStoreId = null;
-            _pendingPut = null;
-            _offered = null;
             _owner = null;
             _target = null;
             _view = null;
@@ -456,13 +464,34 @@ namespace BottomlessChest.Filter
             _pendingPut = null;
         }
 
-        /// <summary>Items the player has that are worth offering to a chest.</summary>
+        /// <summary>
+        /// Items offered to a chest and awaiting the server's answer.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately not cleared when the chest window closes. Holding the use key
+        /// stacks and then closes the window a moment later, so tying this to the view meant
+        /// the confirmation arrived with nothing to act on - the server kept the items and
+        /// the player kept them too. Duplication, from exactly the state the authoritative
+        /// round trip was supposed to prevent.
+        /// </remarks>
         private static List<ItemDrop.ItemData> _offered;
 
-        /// <summary>Offers the player's stackable items to a remote chest.</summary>
-        internal static bool RequestStackAll()
+        private static float _offerSentAt;
+
+        /// <summary>How long to wait for an answer before allowing another offer.</summary>
+        private const float OfferTimeoutSeconds = 5f;
+
+        /// <summary>
+        /// Offers the player's stackable items to a chest, open or not.
+        /// </summary>
+        /// <remarks>
+        /// Takes the store id rather than reading the open view, because depositing by
+        /// holding the use key happens against a closed chest - there is no view then, and
+        /// keying off one meant the deposit silently did nothing.
+        /// </remarks>
+        internal static bool RequestStackAll(string storeId)
         {
-            if (!_remote)
+            if (string.IsNullOrEmpty(storeId))
             {
                 return false;
             }
@@ -473,6 +502,13 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
+            // One offer at a time: the server answers with positions into the offer, so a
+            // second one would make the first answer name the wrong items.
+            if (_offered != null && Time.realtimeSinceStartup - _offerSentAt < OfferTimeoutSeconds)
+            {
+                return true;
+            }
+
             _offered = new List<ItemDrop.ItemData>();
             foreach (var item in player.m_inventory)
             {
@@ -481,6 +517,8 @@ namespace BottomlessChest.Filter
                     _offered.Add(item);
                 }
             }
+
+            Plugin.Log.LogInfo($"Offering {_offered.Count} stackable item(s) to chest {storeId}.");
 
             if (_offered.Count == 0)
             {
@@ -493,7 +531,8 @@ namespace BottomlessChest.Filter
             var package = new ZPackage();
             scratch.Save(package);
 
-            Net.ChestRpc.StackAll(_remoteStoreId, package.GetArray());
+            _offerSentAt = Time.realtimeSinceStartup;
+            Net.ChestRpc.StackAll(storeId, package.GetArray());
             return true;
         }
 
@@ -542,7 +581,13 @@ namespace BottomlessChest.Filter
         /// <summary>Offers an item from the player's inventory to the chest.</summary>
         internal static bool RequestPut(ItemDrop.ItemData item)
         {
-            if (!_remote || item == null || _pendingPut != null)
+            if (!_remote || item == null)
+            {
+                return false;
+            }
+
+            // One at a time, but never wedged: a lost answer frees the slot after a while.
+            if (_pendingPut != null && Time.realtimeSinceStartup - _pendingPutSentAt < OfferTimeoutSeconds)
             {
                 return false;
             }
@@ -554,6 +599,7 @@ namespace BottomlessChest.Filter
             scratch.Save(package);
 
             _pendingPut = item;
+            _pendingPutSentAt = Time.realtimeSinceStartup;
             Net.ChestRpc.Put(_remoteStoreId, package.GetArray());
             return true;
         }

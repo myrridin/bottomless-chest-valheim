@@ -42,6 +42,11 @@ namespace BottomlessChest.Core
         /// <summary>Row the client was last shown, so a refresh can hold its place.</summary>
         internal int LastScrollRow { get; private set; }
 
+        /// <summary>When this session was last used, for expiring abandoned ones.</summary>
+        internal System.DateTime LastUsedUtc { get; private set; } = System.DateTime.UtcNow;
+
+        internal void MarkUsed() => LastUsedUtc = System.DateTime.UtcNow;
+
         internal int TotalCount => Inventory.m_inventory.Count;
 
         internal int MatchCount

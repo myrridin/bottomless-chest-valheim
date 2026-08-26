@@ -25,12 +25,13 @@ namespace BottomlessChest.Core
                     return true;
                 }
 
-                if (!BottomlessContainer.TryResolve(__instance.m_currentContainer, out _) || !ChestView.IsRemote)
+                if (!BottomlessContainer.TryResolve(__instance.m_currentContainer, out var bottomless)
+                    || Storage.SidecarStore.IsServerAuthority)
                 {
                     return true;
                 }
 
-                return !ChestView.RequestStackAll();
+                return !ChestView.RequestStackAll(bottomless.CurrentStoreId);
             }
         }
     }
