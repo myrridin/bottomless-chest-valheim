@@ -42,5 +42,8 @@ namespace BottomlessChest.Net
 
         /// <summary>Server names which offered items it kept, by their position in the offer.</summary>
         Stacked = 11,
+
+        /// <summary>Server reports fresh totals without re-sending the page.</summary>
+        Counts = 12,
     }
 }

@@ -94,6 +94,9 @@ namespace BottomlessChest.Filter
 
         internal static bool IsRemote => _remote;
 
+        /// <summary>The inventory currently being displayed, for identity checks.</summary>
+        internal static Inventory TargetInventory => _target;
+
         internal static long Version => _version;
 
         internal static int ScrollRow => _scrollRow;
@@ -148,14 +151,17 @@ namespace BottomlessChest.Filter
         internal static int WindowSlots => Width * VisibleRows;
 
         /// <summary>
-        /// How many items a page carries, leaving the last row empty.
+        /// How many items a page carries, leaving the final slot free.
         /// </summary>
         /// <remarks>
-        /// A remote chest shows only what the server sent, so a full page has no free slot
-        /// and there is nowhere to drop anything. Holding a row back keeps the chest
-        /// writable however much it holds.
+        /// A remote chest shows only what the server sent, so a completely full page has
+        /// nowhere to drop anything. One reserved slot is enough, and reads as a deliberate
+        /// gap rather than the empty row it used to hold back.
+        ///
+        /// Scrolling is unaffected: the page still covers VisibleRows - 1 complete rows,
+        /// which is what the scroll clamps are derived from on both sides.
         /// </remarks>
-        internal static int PageSlots => Width * (VisibleRows - 1);
+        internal static int PageSlots => (Width * VisibleRows) - 1;
 
         /// <summary>True while the chest is waiting on the server, so the grid is not yet real.</summary>
         internal static bool AwaitingContents =>
@@ -438,6 +444,31 @@ namespace BottomlessChest.Filter
             Refresh();
         }
 
+        /// <summary>
+        /// Updates the totals without touching the layout on screen.
+        /// </summary>
+        /// <remarks>
+        /// Sent after a take. Re-sending a page would compact the remaining items upwards
+        /// and the window would seem to scroll out from under the cursor; leaving a gap is
+        /// what vanilla does when an item is removed.
+        /// </remarks>
+        internal static void ApplyCounts(string storeId, long version, int total, int matches, float weight)
+        {
+            if (!_remote || storeId != _remoteStoreId)
+            {
+                return;
+            }
+
+            _version = version;
+            _remoteTotal = total;
+            _matchCount = matches;
+            _remoteWeight = weight;
+            _awaitingPage = false;
+            KnownTotals[storeId] = total;
+
+            Refresh();
+        }
+
         /// <summary>Receives items the server has removed from the chest for us.</summary>
         internal static void ApplyGranted(List<ItemDrop.ItemData> items)
         {
@@ -604,6 +635,8 @@ namespace BottomlessChest.Filter
                 absolute.Add((_scrollRow * Width) + slot);
             }
 
+            RemoveSlotsLocally(pageSlots);
+
             Plugin.Log.LogDebug(
                 $"Requesting {absolute.Count} item(s) from chest {_remoteStoreId} at v{_version}, " +
                 $"row {_scrollRow} (first index {(absolute.Count > 0 ? absolute[0] : -1)}).");
@@ -635,6 +668,32 @@ namespace BottomlessChest.Filter
             _pendingPutSentAt = Time.realtimeSinceStartup;
             Net.ChestRpc.Put(_remoteStoreId, package.GetArray());
             return true;
+        }
+
+        /// <summary>
+        /// Clears the given page slots on screen, leaving the other items in place.
+        /// </summary>
+        /// <remarks>
+        /// Optimistic only in appearance: the items are already committed to the server by
+        /// the request that accompanies this, and the totals that follow are authoritative.
+        /// </remarks>
+        private static void RemoveSlotsLocally(IReadOnlyList<int> pageSlots)
+        {
+            if (_target == null)
+            {
+                return;
+            }
+
+            var doomed = new HashSet<ItemDrop.ItemData>();
+            foreach (var slot in pageSlots)
+            {
+                if (slot >= 0 && slot < _target.m_inventory.Count)
+                {
+                    doomed.Add(_target.m_inventory[slot]);
+                }
+            }
+
+            _target.m_inventory.RemoveAll(item => doomed.Contains(item));
         }
 
         /// <summary>Whether this inventory is the page of a remotely-owned chest.</summary>

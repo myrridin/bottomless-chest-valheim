@@ -204,8 +204,10 @@ namespace BottomlessChest.Net
                     granted.Write(Serialize(taken));
                     _rpc.SendPackage(sender, granted);
 
-                    // Keep the player where they were rather than snapping to the top.
-                    SendPage(sender, session, -1);
+                    // Counts only, not a page: re-sending one would compact the remaining
+                    // items upwards and the window would appear to scroll under the cursor.
+                    // The client blanks the slots it asked for instead.
+                    SendCounts(sender, session);
                     break;
                 }
 
@@ -358,6 +360,20 @@ namespace BottomlessChest.Net
             yield break;
         }
 
+        /// <summary>Sends fresh totals without disturbing the layout the client is showing.</summary>
+        private static void SendCounts(long peer, ChestSession session)
+        {
+            var counts = new ZPackage();
+            counts.Write((int)ChestMessage.Counts);
+            counts.Write(session.StoreId);
+            counts.Write(session.Version);
+            counts.Write(session.TotalCount);
+            counts.Write(session.MatchCount);
+            counts.Write(session.TotalWeight);
+
+            _rpc.SendPackage(peer, counts);
+        }
+
         /// <summary>Sends one window of items. A negative row means "keep the current one".</summary>
         private static void SendPage(long peer, ChestSession session, int scrollRow)
         {
@@ -437,6 +453,17 @@ namespace BottomlessChest.Net
                 {
                     var items = Deserialize(package.ReadByteArray());
                     Filter.ChestView.ApplyGranted(items);
+                    break;
+                }
+
+                case ChestMessage.Counts:
+                {
+                    var version = package.ReadLong();
+                    var total = package.ReadInt();
+                    var matches = package.ReadInt();
+                    var weight = package.ReadSingle();
+
+                    Filter.ChestView.ApplyCounts(storeId, version, total, matches, weight);
                     break;
                 }
 
