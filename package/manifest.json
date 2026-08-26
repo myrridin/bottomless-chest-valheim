@@ -2,7 +2,7 @@
   "name": "BottomlessChest",
   "author": "myrridin",
   "version_number": "0.1.0",
-  "website_url": "",
+  "website_url": "https://github.com/myrridin/bottomless-chest-valheim",
   "description": "A chest with unlimited storage and a filter to find things. Works on dedicated servers.",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2333",
