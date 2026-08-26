@@ -32,6 +32,23 @@ namespace BottomlessChest.Core
             }
         }
 
+        /// <summary>
+        /// Keeps a bottomless chest from being seeded with default contents.
+        /// </summary>
+        /// <remarks>
+        /// Vanilla seeds a container from its drop table the first time its owner sees it.
+        /// The cloned chest inherits an empty table so this does nothing today, but the path
+        /// is wrong for us either way: on a client it would add items to the page, which is
+        /// discarded, while setting the ZDO flag so the server never adds them either. Found
+        /// by sweeping every call site that can mutate a container's inventory.
+        /// </remarks>
+        [HarmonyPatch(typeof(Container), "AddDefaultItems")]
+        private static class NoDefaultItems
+        {
+            private static bool Prefix(Container __instance) =>
+                Plugin.Degraded || !BottomlessContainer.TryResolve(__instance, out _);
+        }
+
         [HarmonyPatch(typeof(Container), "Load")]
         private static class LoadPatch
         {
