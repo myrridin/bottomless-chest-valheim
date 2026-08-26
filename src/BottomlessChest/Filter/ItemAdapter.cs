@@ -36,7 +36,26 @@ namespace BottomlessChest.Filter
 
         public string ItemId => _item.m_dropPrefab != null ? _item.m_dropPrefab.name : _item.m_shared.m_name;
 
-        public string DisplayName => Localization.instance.Localize(_item.m_shared.m_name);
+        public string DisplayName => Localize(_item.m_shared.m_name);
+
+        /// <summary>
+        /// Localizes a token, tolerating a context that has no localization loaded.
+        /// </summary>
+        /// <remarks>
+        /// Searching and sorting now also run on the dedicated server, which is far less
+        /// of a guaranteed environment than a client. Falling back to the raw token keeps
+        /// matching sane rather than throwing.
+        /// </remarks>
+        private static string Localize(string token)
+        {
+            if (string.IsNullOrEmpty(token))
+            {
+                return string.Empty;
+            }
+
+            var localization = Localization.instance;
+            return localization != null ? localization.Localize(token) : token.TrimStart('$');
+        }
 
         public string SearchKey
         {
@@ -53,7 +72,7 @@ namespace BottomlessChest.Filter
                     return key;
                 }
 
-                key = TextKey.Of(Localization.instance.Localize(token));
+                key = TextKey.Of(Localize(token));
                 SearchKeys[token] = key;
                 return key;
             }

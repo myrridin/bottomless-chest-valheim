@@ -12,6 +12,12 @@ namespace BottomlessChest.Gui
     /// </summary>
     internal static class SearchBox
     {
+        /// <summary>How far above the chest title the search box sits.</summary>
+        private const float SearchBoxLift = 14f;
+
+        /// <summary>Gap between the search box and the count line beneath it.</summary>
+        private const float StatusGap = 20f;
+
         private static GameObject _field;
         private static GameObject _hiddenTitle;
         private static InputField _input;
@@ -81,7 +87,9 @@ namespace BottomlessChest.Gui
                     rect.anchorMin = anchorSource.anchorMin;
                     rect.anchorMax = anchorSource.anchorMax;
                     rect.pivot = anchorSource.pivot;
-                    rect.anchoredPosition = anchorSource.anchoredPosition;
+                    // Sit above the title's slot and let the count line take the slot
+                    // itself, so neither crowds the first row of items.
+                    rect.anchoredPosition = anchorSource.anchoredPosition + new Vector2(0f, SearchBoxLift);
                     rect.sizeDelta = new Vector2(280f, 30f);
 
                     _hiddenTitle = title.gameObject;
@@ -97,17 +105,12 @@ namespace BottomlessChest.Gui
                 }
 
                 _input.onValueChanged.AddListener(OnChanged);
-                _field.AddComponent<SearchFocusGuard>();
+                _field.AddComponent<SearchFocusGuard>().TakeFocus();
                 _field.AddComponent<ChestScroller>();
 
                 // Drawn above the panel it belongs to, so it can end up underneath a
                 // neighbouring panel's raycast target - visible, but never clickable.
                 _field.transform.SetAsLastSibling();
-
-                // Focus it immediately: you opened a searchable chest, so typing should
-                // just work without hunting for the box first.
-                _input.Select();
-                _input.ActivateInputField();
 
                 Plugin.Log.LogDebug(
                     $"Search box ready (parent '{gui.m_container.name}', " +
@@ -133,7 +136,7 @@ namespace BottomlessChest.Gui
                 statusRect.anchorMin = fieldRect.anchorMin;
                 statusRect.anchorMax = fieldRect.anchorMax;
                 statusRect.pivot = fieldRect.pivot;
-                statusRect.anchoredPosition = fieldRect.anchoredPosition - new Vector2(0f, 26f);
+                statusRect.anchoredPosition = fieldRect.anchoredPosition - new Vector2(0f, StatusGap);
 
                 UpdateStatus();
             }

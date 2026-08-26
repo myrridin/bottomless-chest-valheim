@@ -256,6 +256,7 @@ namespace BottomlessChest.Storage
                 return;
             }
 
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             var save = SavePath(world);
             var pending = save + ".new";
             var previous = save + ".old";
@@ -299,7 +300,17 @@ namespace BottomlessChest.Storage
                 FileHelpers.ReplaceOldFile(save, pending, previous, world.m_fileSource);
 
                 _dirty = false;
-                Plugin.Log.LogInfo($"Saved {_entries.Count} chest store(s) to {Path.GetFileName(save)}.");
+
+                var bytes = 0L;
+                foreach (var entry in _entries.Values)
+                {
+                    bytes += entry.Contents.Length;
+                }
+
+                // Every store is rewritten whenever any one of them changes, so the cost
+                // scales with the total held across all chests, not with what was edited.
+                Plugin.Log.LogInfo(
+                    $"Saved {_entries.Count} chest store(s), {bytes / 1024}KB, in {timer.ElapsedMilliseconds}ms.");
             }
             catch (Exception ex)
             {

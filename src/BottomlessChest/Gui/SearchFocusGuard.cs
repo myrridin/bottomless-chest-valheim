@@ -19,10 +19,25 @@ namespace BottomlessChest.Gui
     {
         private InputField _input;
         private bool _blocking;
+        private int _focusAttemptsLeft;
 
         private void Awake()
         {
             _input = GetComponent<InputField>();
+        }
+
+        /// <summary>
+        /// Asks for keyboard focus, retrying for a few frames.
+        /// </summary>
+        /// <remarks>
+        /// Focusing once during Show is not reliable: the inventory GUI is still being
+        /// built and something else can take the selection immediately afterwards, leaving
+        /// the box looking focused but ignoring keystrokes. Retrying until it sticks is
+        /// cheap and removes the race.
+        /// </remarks>
+        internal void TakeFocus()
+        {
+            _focusAttemptsLeft = 10;
         }
 
         private void Update()
@@ -31,6 +46,21 @@ namespace BottomlessChest.Gui
             {
                 Release();
                 return;
+            }
+
+            if (_focusAttemptsLeft > 0)
+            {
+                _focusAttemptsLeft--;
+
+                if (!_input.isFocused)
+                {
+                    _input.Select();
+                    _input.ActivateInputField();
+                }
+                else
+                {
+                    _focusAttemptsLeft = 0;
+                }
             }
 
             if (_input.isFocused == _blocking)

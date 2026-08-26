@@ -21,8 +21,9 @@ namespace BottomlessChest.Piece
         // Fallbacks if the configured hex is unparseable. Deliberately NOT blue-cyan:
         // that is the colour of Valheim's placement ghost, and a cyan chest reads as an
         // unplaced preview rather than a real object.
-        private static readonly Color FallbackTint = new Color(0.29f, 0.25f, 0.18f);
-        private static readonly Color FallbackGlow = new Color(0.78f, 0.85f, 0.24f);
+        private static readonly Color FallbackTint = new Color(0.77f, 0.76f, 0.74f);
+        private static readonly Color FallbackLid = new Color(0.18f, 0.18f, 0.20f);
+        private static readonly Color FallbackGlow = new Color(0.56f, 0.66f, 0.42f);
 
         private static Color ReadColour(string hex, Color fallback)
         {
@@ -48,7 +49,8 @@ namespace BottomlessChest.Piece
             {
                 { "piece_bottomlesschest", "Bottomless Chest" },
                 { "piece_bottomlesschest_desc", "Holds everything. Type to find it again." },
-                { "bottomless_search", "Search..." }
+                { "bottomless_search", "Search..." },
+                { "bottomless_toolarge", "This chest holds too much to open over the network." }
             });
         }
 
@@ -150,6 +152,7 @@ namespace BottomlessChest.Piece
         private static void ApplyTint(GameObject prefab)
         {
             var tint = ReadColour(Settings.ModConfig.BodyTint.Value, FallbackTint);
+            var lidTint = ReadColour(Settings.ModConfig.LidTint.Value, FallbackLid);
             var glow = ReadColour(Settings.ModConfig.GlowColour.Value, FallbackGlow)
                        * Settings.ModConfig.GlowStrength.Value;
 
@@ -170,14 +173,14 @@ namespace BottomlessChest.Piece
                     var material = new Material(originals[i]);
                     described.Add($"{renderer.name}/{originals[i].name} (shader {originals[i].shader?.name})");
 
-                    if (material.HasProperty("_Color"))
-                    {
-                        material.SetColor("_Color", material.GetColor("_Color") * tint);
-                    }
-
                     var isLid = System.Array.Exists(
                         LidMarkers,
                         marker => renderer.name.IndexOf(marker, System.StringComparison.OrdinalIgnoreCase) >= 0);
+
+                    if (material.HasProperty("_Color"))
+                    {
+                        material.SetColor("_Color", material.GetColor("_Color") * (isLid ? lidTint : tint));
+                    }
 
                     if (isLid && material.HasProperty("_EmissionColor"))
                     {

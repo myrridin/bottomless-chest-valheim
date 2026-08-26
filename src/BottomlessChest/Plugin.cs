@@ -121,6 +121,8 @@ namespace BottomlessChest
         private void OnDestroy()
         {
             Filter.ItemAdapter.ClearCache();
+            Core.ChestSessions.PersistAll();
+            Core.ChestSessions.Clear();
             Storage.WorldSaveHooks.Uninstall();
             Storage.SidecarStore.Instance.Flush();
             Storage.SidecarStore.Instance.Unload();

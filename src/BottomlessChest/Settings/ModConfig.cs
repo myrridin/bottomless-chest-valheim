@@ -14,6 +14,7 @@ namespace BottomlessChest.Settings
         internal static ConfigEntry<float> SnapshotDebounceSeconds;
         internal static ConfigEntry<float> ModelScale;
         internal static ConfigEntry<string> BodyTint;
+        internal static ConfigEntry<string> LidTint;
         internal static ConfigEntry<string> GlowColour;
         internal static ConfigEntry<float> GlowStrength;
 
@@ -32,14 +33,18 @@ namespace BottomlessChest.Settings
                     "to the server. Batches a burst of item moves into one message.",
                     new AcceptableValueRange<float>(0.1f, 10f)));
 
-            BodyTint = cfg.Bind("Appearance", "BodyTint", "#4A3F2E",
+            BodyTint = cfg.Bind("Appearance", "BodyTint", "#C4C2BC",
                 "Hex colour multiplied over the chest body. Darker values read as a solid " +
                 "object; avoid blue-cyan, which is the colour of the placement ghost.");
 
-            GlowColour = cfg.Bind("Appearance", "GlowColour", "#C8D93C",
+            LidTint = cfg.Bind("Appearance", "LidTint", "#2E2E33",
+                "Hex colour multiplied over the chest lid. Darker than the body makes the " +
+                "glow read against it.");
+
+            GlowColour = cfg.Bind("Appearance", "GlowColour", "#8FA86B",
                 "Hex colour of the emissive glow on the chest lid.");
 
-            GlowStrength = cfg.Bind("Appearance", "GlowStrength", 0.5f,
+            GlowStrength = cfg.Bind("Appearance", "GlowStrength", 0.35f,
                 new ConfigDescription(
                     "Multiplier on the lid glow. Around 0.5 is a subtle sheen; above 1 pushes " +
                     "it into bloom and reads as a light source.",

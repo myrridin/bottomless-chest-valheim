@@ -38,6 +38,15 @@ namespace BottomlessChest.Filter
         private static int _windowEnd;
         private static Core.BottomlessContainer _owner;
 
+        // Remote mode: the server owns the contents and sends one window at a time, so
+        // _target holds only what is on screen and the counts come over the wire.
+        private static bool _remote;
+        private static long _version;
+        private static int _remoteTotal;
+        private static string _remoteStoreId;
+        private static bool _awaitingPage;
+        private static ItemDrop.ItemData _pendingPut;
+
         // Reused across keystrokes: at a hundred thousand stacks, allocating two lists per
         // character typed is a large amount of garbage for no reason.
         private static readonly List<ItemDrop.ItemData> Matched = new List<ItemDrop.ItemData>();
@@ -45,13 +54,42 @@ namespace BottomlessChest.Filter
 
         internal static int MatchCount => _matchCount;
 
-        internal static int TotalCount => _target?.m_inventory.Count ?? 0;
+        internal static int TotalCount => _remote ? _remoteTotal : (_target?.m_inventory.Count ?? 0);
+
+        internal static bool IsRemote => _remote;
+
+        internal static long Version => _version;
 
         internal static int ScrollRow => _scrollRow;
 
         internal static bool IsFiltering => _target != null && !string.IsNullOrWhiteSpace(_query);
 
         internal static bool IsOpen => _target != null;
+
+        /// <summary>
+        /// The items the current search matches, in display order.
+        /// </summary>
+        /// <remarks>
+        /// A snapshot, because callers move items out of the chest while iterating.
+        /// Matches are kept at the front of the inventory, so this is a prefix.
+        /// </remarks>
+        internal static List<ItemDrop.ItemData> MatchingItems()
+        {
+            var result = new List<ItemDrop.ItemData>();
+            if (_target == null)
+            {
+                return result;
+            }
+
+            var items = _target.m_inventory;
+            var end = Mathf.Min(_matchCount, items.Count);
+            for (var i = 0; i < end; i++)
+            {
+                result.Add(items[i]);
+            }
+
+            return result;
+        }
 
         internal static int TotalRows => GridPacker.RowsNeeded(_matchCount, Width);
 
@@ -67,11 +105,25 @@ namespace BottomlessChest.Filter
 
         internal const int VisibleRows = 6;
 
+        /// <summary>Grid width, exposed for server-side paging which has no view of its own.</summary>
+        internal static int WidthForSession => Width;
+
         /// <summary>Slots reserved for the window, which hidden items are placed after.</summary>
         internal static int WindowSlots => Width * VisibleRows;
 
+        /// <summary>
+        /// How many items a page carries, leaving the last row empty.
+        /// </summary>
+        /// <remarks>
+        /// A remote chest shows only what the server sent, so a full page has no free slot
+        /// and there is nowhere to drop anything. Holding a row back keeps the chest
+        /// writable however much it holds.
+        /// </remarks>
+        internal static int PageSlots => Width * (VisibleRows - 1);
+
         /// <summary>True while the chest is waiting on the server, so the grid is not yet real.</summary>
-        internal static bool AwaitingContents => _owner != null && _owner.AwaitingContents;
+        internal static bool AwaitingContents =>
+            _remote ? _awaitingPage : (_owner != null && _owner.AwaitingContents);
 
         internal static void Begin(Inventory inventory, Core.BottomlessContainer owner)
         {
@@ -79,12 +131,37 @@ namespace BottomlessChest.Filter
             _target = inventory;
             _query = string.Empty;
             _scrollRow = 0;
+            _remote = owner != null && !Storage.SidecarStore.IsServerAuthority;
+            _version = 0;
+            _remoteTotal = 0;
+            _matchCount = 0;
+            _remoteStoreId = owner?.CurrentStoreId;
+
+            if (_remote)
+            {
+                // Nothing is held locally until the server sends a window.
+                _target.m_inventory.Clear();
+                _awaitingPage = true;
+                Net.ChestRpc.Open(_remoteStoreId);
+                return;
+            }
+
             Reapply();
         }
 
         internal static void End()
         {
+            if (_remote && !string.IsNullOrEmpty(_remoteStoreId))
+            {
+                Net.ChestRpc.Close(_remoteStoreId);
+            }
+
+            var wasRemote = _remote;
             var previous = _target;
+            _remote = false;
+            _awaitingPage = false;
+            _remoteStoreId = null;
+            _pendingPut = null;
             _owner = null;
             _target = null;
             _view = null;
@@ -94,7 +171,7 @@ namespace BottomlessChest.Filter
 
             // Repack only if the layout we leave behind would not be displayable; an
             // externally applied sort should survive closing the chest.
-            if (previous != null && !Core.InventoryCapacity.LayoutIsUsable(previous, VisibleRowsFor(previous)))
+            if (!wasRemote && previous != null && !Core.InventoryCapacity.LayoutIsUsable(previous, VisibleRowsFor(previous)))
             {
                 Core.InventoryCapacity.Repack(previous);
             }
@@ -102,6 +179,15 @@ namespace BottomlessChest.Filter
 
         internal static void SetQuery(string query)
         {
+            if (_remote)
+            {
+                _query = query ?? string.Empty;
+                _scrollRow = 0;
+                _awaitingPage = true;
+                Net.ChestRpc.RequestPage(_remoteStoreId, _query, 0);
+                return;
+            }
+
             var timer = System.Diagnostics.Stopwatch.StartNew();
             _query = query ?? string.Empty;
             _scrollRow = 0;
@@ -111,25 +197,15 @@ namespace BottomlessChest.Filter
         }
 
         /// <summary>Scrolls by whole rows. Returns true if the window actually moved.</summary>
-        internal static bool Scroll(int rows)
-        {
-            if (_target == null || rows == 0)
-            {
-                return false;
-            }
-
-            var before = _scrollRow;
-            _scrollRow = Mathf.Clamp(_scrollRow + rows, 0, MaxScrollRow());
-
-            if (_scrollRow == before)
-            {
-                return false;
-            }
-
-            Reapply();
-            Refresh();
-            return true;
-        }
+        /// <summary>
+        /// Scrolls by a number of rows.
+        /// </summary>
+        /// <remarks>
+        /// Delegates rather than duplicating: this used to have its own copy of the clamp
+        /// and refresh, which meant the remote paging branch added to ScrollTo was never
+        /// reached from the mouse wheel.
+        /// </remarks>
+        internal static bool Scroll(int rows) => rows != 0 && ScrollTo(_scrollRow + rows);
 
         /// <summary>Scrolls to an absolute row, clamped. Returns true if the window moved.</summary>
         internal static bool ScrollTo(int row)
@@ -145,6 +221,14 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
+            if (_remote)
+            {
+                _scrollRow = clamped;
+                _awaitingPage = true;
+                Net.ChestRpc.RequestPage(_remoteStoreId, _query, clamped);
+                return true;
+            }
+
             _scrollRow = clamped;
             Reapply();
             Refresh();
@@ -155,6 +239,11 @@ namespace BottomlessChest.Filter
 
         internal static void OnInventoryChanged(Inventory inventory)
         {
+            if (_remote)
+            {
+                return;
+            }
+
             if (_target != null && ReferenceEquals(_target, inventory))
             {
                 Reapply();
@@ -175,7 +264,7 @@ namespace BottomlessChest.Filter
         /// </summary>
         private static void Reapply()
         {
-            if (_target == null)
+            if (_target == null || _remote)
             {
                 return;
             }
@@ -268,6 +357,113 @@ namespace BottomlessChest.Filter
             }
         }
 
+        /// <summary>Accepts a window of items sent by the server.</summary>
+        internal static void ApplyPage(
+            string storeId, long version, int total, int matches, int scrollRow, List<ItemDrop.ItemData> items)
+        {
+            if (!_remote || _target == null || storeId != _remoteStoreId)
+            {
+                return;
+            }
+
+            _version = version;
+            _remoteTotal = total;
+            _matchCount = matches;
+            _scrollRow = scrollRow;
+            _awaitingPage = false;
+
+            var live = _target.m_inventory;
+            live.Clear();
+            live.AddRange(items);
+
+            for (var i = 0; i < live.Count; i++)
+            {
+                var pos = GridPacker.PositionOf(i, Width);
+                live[i].m_gridPos = new Vector2i(pos.X, pos.Y);
+            }
+
+            _target.m_width = Width;
+            _target.m_height = VisibleRows;
+
+            Refresh();
+        }
+
+        /// <summary>Receives items the server has removed from the chest for us.</summary>
+        internal static void ApplyGranted(List<ItemDrop.ItemData> items)
+        {
+            var player = Player.m_localPlayer?.GetInventory();
+            if (player == null)
+            {
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                if (!player.AddItem(item))
+                {
+                    // Nowhere to put it: drop at the player's feet rather than lose it,
+                    // since the server has already given it up.
+                    ItemDrop.DropItem(item, item.m_stack, Player.m_localPlayer.transform.position, Quaternion.identity);
+                }
+            }
+        }
+
+        /// <summary>The server took the item we offered, so our copy can go.</summary>
+        internal static void ApplyAccepted()
+        {
+            if (_pendingPut == null)
+            {
+                return;
+            }
+
+            Player.m_localPlayer?.GetInventory()?.RemoveItem(_pendingPut);
+            _pendingPut = null;
+        }
+
+        /// <summary>Asks the server for items at the given page slots.</summary>
+        internal static void RequestTake(IReadOnlyList<int> pageSlots)
+        {
+            if (!_remote || pageSlots.Count == 0)
+            {
+                return;
+            }
+
+            var absolute = new List<int>(pageSlots.Count);
+            foreach (var slot in pageSlots)
+            {
+                absolute.Add((_scrollRow * Width) + slot);
+            }
+
+            Net.ChestRpc.Take(_remoteStoreId, _version, absolute);
+        }
+
+        /// <summary>Offers an item from the player's inventory to the chest.</summary>
+        internal static bool RequestPut(ItemDrop.ItemData item)
+        {
+            if (!_remote || item == null || _pendingPut != null)
+            {
+                return false;
+            }
+
+            var scratch = new Inventory("put", null, Width, 1);
+            scratch.m_inventory.Add(item);
+
+            var package = new ZPackage();
+            scratch.Save(package);
+
+            _pendingPut = item;
+            Net.ChestRpc.Put(_remoteStoreId, package.GetArray());
+            return true;
+        }
+
+        /// <summary>Whether this inventory is the page of a remotely-owned chest.</summary>
+        internal static bool IsRemotePage(Inventory inventory) =>
+            _remote && _target != null && ReferenceEquals(_target, inventory);
+
+        /// <summary>Slot of an item within the page, or -1.</summary>
+        internal static int PageSlotOf(ItemDrop.ItemData item) =>
+            _target == null ? -1 : _target.m_inventory.IndexOf(item);
+
         /// <summary>Builds the stand-in inventory holding just the windowed items.</summary>
         private static Inventory BuildView()
         {
@@ -301,7 +497,9 @@ namespace BottomlessChest.Filter
             {
                 _swappedOut = null;
 
-                if (_target == null || !ReferenceEquals(__instance.m_inventory, _target))
+                // In remote mode the inventory already is the page, so there is nothing to
+                // stand in for.
+                if (_remote || _target == null || !ReferenceEquals(__instance.m_inventory, _target))
                 {
                     return;
                 }
