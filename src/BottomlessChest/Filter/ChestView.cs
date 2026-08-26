@@ -575,6 +575,10 @@ namespace BottomlessChest.Filter
                 absolute.Add((_scrollRow * Width) + slot);
             }
 
+            Plugin.Log.LogInfo(
+                $"Requesting {absolute.Count} item(s) from chest {_remoteStoreId} at v{_version}, " +
+                $"row {_scrollRow} (first index {(absolute.Count > 0 ? absolute[0] : -1)}).");
+
             Net.ChestRpc.Take(_remoteStoreId, _version, absolute);
         }
 

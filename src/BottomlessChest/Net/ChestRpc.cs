@@ -184,13 +184,19 @@ namespace BottomlessChest.Net
                     {
                         // The client acted on a stale view; give it a fresh one instead of
                         // removing something it did not mean to.
-                        Plugin.Log.LogDebug($"Rejecting stale take on chest {storeId}.");
+                        Plugin.Log.LogWarning(
+                            $"Rejecting stale take on chest {storeId}: client is at v{version}, " +
+                            $"session is at v{session.Version}.");
                         SendPage(sender, session, -1);
                         break;
                     }
 
                     var taken = session.Take(indices);
                     ChestSessions.Persist(session);
+
+                    Plugin.Log.LogInfo(
+                        $"Take from {storeId}: {indices.Count} requested, {taken.Count} removed, " +
+                        $"{session.TotalCount} left.");
 
                     var granted = new ZPackage();
                     granted.Write((int)ChestMessage.Granted);
