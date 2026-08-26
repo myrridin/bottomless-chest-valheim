@@ -49,7 +49,7 @@
     <MakeDir Directories="$(DeployDir)" />
     <!-- Retries="0": while Valheim is running it holds a mapped section on the DLL and the
          copy can never succeed, so retrying just buries the real reason in warnings. -->
-    <Copy SourceFiles="$(TargetPath);$(TargetDir)$(AssemblyName).pdb;$(TargetDir)BottomlessChest.Logic.dll"
+    <Copy SourceFiles="$(TargetPath);$(TargetDir)BottomlessChest.Logic.dll"
           DestinationFolder="$(DeployDir)" Retries="0" ContinueOnError="true">
       <Output TaskParameter="CopiedFiles" ItemName="_DeployedFiles" />
     </Copy>

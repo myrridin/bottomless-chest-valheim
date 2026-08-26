@@ -43,6 +43,10 @@ namespace BottomlessChest.Filter
         private static bool _remote;
         private static long _version;
         private static int _remoteTotal;
+        private static float _remoteWeight;
+
+        /// <summary>Weight of the whole chest, not just the page the client holds.</summary>
+        internal static float RemoteWeight => _remoteWeight;
         private static string _remoteStoreId;
         private static bool _awaitingPage;
         /// <summary>
@@ -398,7 +402,8 @@ namespace BottomlessChest.Filter
 
         /// <summary>Accepts a window of items sent by the server.</summary>
         internal static void ApplyPage(
-            string storeId, long version, int total, int matches, int scrollRow, List<ItemDrop.ItemData> items)
+            string storeId, long version, int total, int matches, float weight, int scrollRow,
+            List<ItemDrop.ItemData> items)
         {
             if (!_remote || _target == null || storeId != _remoteStoreId)
             {
@@ -408,6 +413,7 @@ namespace BottomlessChest.Filter
             _version = version;
             _remoteTotal = total;
             _matchCount = matches;
+            _remoteWeight = weight;
             KnownTotals[storeId] = total;
             _scrollRow = scrollRow;
             _awaitingPage = false;
@@ -518,7 +524,7 @@ namespace BottomlessChest.Filter
                 }
             }
 
-            Plugin.Log.LogInfo($"Offering {_offered.Count} stackable item(s) to chest {storeId}.");
+            Plugin.Log.LogDebug($"Offering {_offered.Count} stackable item(s) to chest {storeId}.");
 
             if (_offered.Count == 0)
             {
@@ -598,7 +604,7 @@ namespace BottomlessChest.Filter
                 absolute.Add((_scrollRow * Width) + slot);
             }
 
-            Plugin.Log.LogInfo(
+            Plugin.Log.LogDebug(
                 $"Requesting {absolute.Count} item(s) from chest {_remoteStoreId} at v{_version}, " +
                 $"row {_scrollRow} (first index {(absolute.Count > 0 ? absolute[0] : -1)}).");
 

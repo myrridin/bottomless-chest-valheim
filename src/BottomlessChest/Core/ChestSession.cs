@@ -25,6 +25,8 @@ namespace BottomlessChest.Core
 
         private string _query = string.Empty;
         private bool _orderDirty = true;
+        private float _totalWeight;
+        private bool _weightDirty = true;
 
         internal ChestSession(string storeId, Inventory inventory)
         {
@@ -74,6 +76,32 @@ namespace BottomlessChest.Core
         {
             Version++;
             _orderDirty = true;
+            _weightDirty = true;
+        }
+
+        /// <summary>
+        /// Weight of everything the chest holds.
+        /// </summary>
+        /// <remarks>
+        /// Cached because it walks every item, and a page is requested on every keystroke.
+        /// </remarks>
+        internal float TotalWeight
+        {
+            get
+            {
+                if (_weightDirty)
+                {
+                    _weightDirty = false;
+                    _totalWeight = 0f;
+
+                    foreach (var item in Inventory.m_inventory)
+                    {
+                        _totalWeight += item.GetWeight();
+                    }
+                }
+
+                return _totalWeight;
+            }
         }
 
         /// <summary>Items visible at a given scroll row, at most one window's worth.</summary>

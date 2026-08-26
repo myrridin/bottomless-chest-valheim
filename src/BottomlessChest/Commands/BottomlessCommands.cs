@@ -17,7 +17,8 @@ namespace BottomlessChest.Commands
         public override string Name => "bottomless";
 
         public override string Help =>
-            "bottomless list | here | rebind <storeId> | fill <stacks> [prefab] | empty";
+            "bottomless list | here | rebind <storeId> | fill <stacks> [prefab] | empty  " +
+            "(fill and empty need devcommands)";
 
         public override void Run(string[] args)
         {
@@ -49,11 +50,19 @@ namespace BottomlessChest.Commands
                     break;
 
                 case "fill":
-                    Fill(args);
+                    if (RequireCheats())
+                    {
+                        Fill(args);
+                    }
+
                     break;
 
                 case "empty":
-                    Empty();
+                    if (RequireCheats())
+                    {
+                        Empty();
+                    }
+
                     break;
 
                 default:
@@ -127,6 +136,25 @@ namespace BottomlessChest.Commands
         /// to a dedicated server, no matter who you are. This is the only practical way to
         /// get bulk test data into a chest in the setup we actually develop against.
         /// </remarks>
+        /// <summary>
+        /// Gates the development commands behind cheats.
+        /// </summary>
+        /// <remarks>
+        /// Filling a chest with a hundred thousand items is a testing tool, not a feature.
+        /// Vanilla puts spawn behind devcommands for the same reason, so this follows the
+        /// convention players already know rather than inventing a setting.
+        /// </remarks>
+        private static bool RequireCheats()
+        {
+            if (Console.instance != null && Console.instance.IsCheatsEnabled())
+            {
+                return true;
+            }
+
+            Console.instance?.Print("This is a testing command. Enable it with 'devcommands' first.");
+            return false;
+        }
+
         private static void Fill(IReadOnlyList<string> args)
         {
             var chest = Nearest();

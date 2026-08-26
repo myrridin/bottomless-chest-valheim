@@ -194,7 +194,7 @@ namespace BottomlessChest.Net
                     var taken = session.Take(indices);
                     ChestSessions.Persist(session);
 
-                    Plugin.Log.LogInfo(
+                    Plugin.Log.LogDebug(
                         $"Take from {storeId}: {indices.Count} requested, {taken.Count} removed, " +
                         $"{session.TotalCount} left.");
 
@@ -260,7 +260,7 @@ namespace BottomlessChest.Net
                     }
 
                     ChestSessions.Persist(session);
-                    Plugin.Log.LogInfo($"Added {items.Count} filler stacks to chest {storeId}.");
+                    Plugin.Log.LogDebug($"Added {items.Count} filler stacks to chest {storeId}.");
                     SendPage(sender, session, -1);
                     break;
                 }
@@ -278,7 +278,7 @@ namespace BottomlessChest.Net
                     session.Touch();
                     ChestSessions.Persist(session);
 
-                    Plugin.Log.LogInfo($"Emptied chest {storeId} of {before} stacks.");
+                    Plugin.Log.LogDebug($"Emptied chest {storeId} of {before} stacks.");
                     SendPage(sender, session, 0);
                     break;
                 }
@@ -318,7 +318,7 @@ namespace BottomlessChest.Net
                         kept.Add(i);
                     }
 
-                    Plugin.Log.LogInfo(
+                    Plugin.Log.LogDebug(
                         $"Deposit into {storeId}: {offered.Count} offered, {held.Count} distinct types held, " +
                         $"{kept.Count} kept.");
 
@@ -375,6 +375,7 @@ namespace BottomlessChest.Net
             reply.Write(session.Version);
             reply.Write(session.TotalCount);
             reply.Write(session.MatchCount);
+            reply.Write(session.TotalWeight);
             reply.Write(row);
             reply.Write(Serialize(page));
 
@@ -424,10 +425,11 @@ namespace BottomlessChest.Net
                     var version = package.ReadLong();
                     var total = package.ReadInt();
                     var matches = package.ReadInt();
+                    var weight = package.ReadSingle();
                     var scrollRow = package.ReadInt();
                     var items = Deserialize(package.ReadByteArray());
 
-                    Filter.ChestView.ApplyPage(storeId, version, total, matches, scrollRow, items);
+                    Filter.ChestView.ApplyPage(storeId, version, total, matches, weight, scrollRow, items);
                     break;
                 }
 

@@ -30,7 +30,7 @@ namespace BottomlessChest.Core
                     return true;
                 }
 
-                Plugin.Log.LogInfo($"Deposit requested for chest {bottomless.CurrentStoreId}.");
+                Plugin.Log.LogDebug($"Deposit requested for chest {bottomless.CurrentStoreId}.");
                 return !ChestView.RequestStackAll(bottomless.CurrentStoreId);
             }
         }
