@@ -132,6 +132,7 @@ namespace BottomlessChest.Gui
                 _input.onValueChanged.AddListener(OnChanged);
                 _field.AddComponent<SearchFocusGuard>().TakeFocus();
                 _field.AddComponent<ChestScroller>();
+                _field.AddComponent<ChestScrollbarBridge>().Bind(gui.m_containerGrid);
 
                 // Drawn above the panel it belongs to, so it can end up underneath a
                 // neighbouring panel's raycast target - visible, but never clickable.

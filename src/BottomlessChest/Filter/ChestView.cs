@@ -301,6 +301,9 @@ namespace BottomlessChest.Filter
         /// </remarks>
         private static int RowsCarried => _remote ? VisibleRows - 1 : VisibleRows;
 
+        /// <summary>Rows a page actually shows, for sizing the scrollbar handle.</summary>
+        internal static int RowsOnScreen => RowsCarried;
+
         private static int MaxScrollRow()
         {
             var rows = TotalRows - RowsCarried;

@@ -1,0 +1,10 @@
+{
+  "name": "BottomlessChest",
+  "version_number": "0.1.0",
+  "website_url": "",
+  "description": "A buildable chest with unlimited storage and a search box you type into to find things. Works on dedicated servers.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2333",
+    "ValheimModding-Jotunn-2.29.2"
+  ]
+}

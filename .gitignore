@@ -4,3 +4,4 @@ obj/
 
 # Rescued copies of world save data - kept on disk, not in git.
 recovery/
+dist/
