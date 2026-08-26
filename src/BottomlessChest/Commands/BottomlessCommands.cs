@@ -142,93 +142,25 @@ namespace BottomlessChest.Commands
                 return;
             }
 
-            var db = ObjectDB.instance;
-            if (db == null)
+            if (!Storage.SidecarStore.IsServerAuthority)
             {
-                Console.instance.Print("Item database is not loaded yet.");
+                // The chest lives on the server and this client only holds the page, so the
+                // server generates and stores the stacks itself.
+                Net.ChestRpc.Fill(chest.CurrentStoreId, stacks, args.Count > 2 ? args[2] : null);
+                Console.instance.Print($"Asked the server for {stacks} filler stack(s).");
                 return;
             }
 
-            var templates = new List<ItemDrop>();
-
-            if (args.Count > 2)
+            var items = TestData.Build(stacks, args.Count > 2 ? args[2] : null, out var error);
+            if (error != null)
             {
-                var prefab = db.GetItemPrefab(args[2]);
-                var drop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
-                if (drop == null)
-                {
-                    Console.instance.Print($"No item prefab called '{args[2]}'.");
-                    return;
-                }
-
-                if (!IsDisplayable(drop))
-                {
-                    Console.instance.Print($"'{args[2]}' has no inventory icon and cannot be shown in a chest.");
-                    return;
-                }
-
-                templates.Add(drop);
-            }
-            else
-            {
-                // A spread of item types rather than one repeated - stacking would otherwise
-                // collapse the lot into a couple of entries and prove nothing about scale.
-                foreach (var candidate in db.m_items)
-                {
-                    var drop = candidate != null ? candidate.GetComponent<ItemDrop>() : null;
-                    if (IsDisplayable(drop))
-                    {
-                        templates.Add(drop);
-                    }
-                }
-            }
-
-            if (templates.Count == 0)
-            {
-                Console.instance.Print("No usable item prefabs found.");
+                Console.instance.Print(error);
                 return;
             }
 
-            var inventory = chest.Inventory;
-            var added = 0;
-
-            for (var i = 0; i < stacks; i++)
-            {
-                var template = templates[i % templates.Count];
-                var item = template.m_itemData.Clone();
-
-                item.m_dropPrefab = template.gameObject;
-                item.m_stack = Mathf.Max(1, item.m_shared.m_maxStackSize);
-                item.m_quality = 1;
-
-                // GetIcon() indexes m_icons by variant with no bounds check.
-                item.m_variant = 0;
-
-                inventory.m_inventory.Add(item);
-                added++;
-            }
-
+            chest.Inventory.m_inventory.AddRange(items);
             chest.NotifyFilled();
-            Console.instance.Print($"Added {added} stack(s); chest now holds {inventory.m_inventory.Count}.");
-        }
-
-        /// <summary>
-        /// Whether an item can actually be drawn in an inventory slot.
-        /// </summary>
-        /// <remarks>
-        /// ObjectDB contains entries with no icons at all - internal or unused items.
-        /// ItemData.GetIcon() is an unguarded `m_icons[m_variant]`, so one of those in a
-        /// chest throws IndexOutOfRangeException on every single grid redraw, thousands of
-        /// times a minute, and the inventory never finishes drawing.
-        /// </remarks>
-        private static bool IsDisplayable(ItemDrop drop)
-        {
-            var shared = drop != null ? drop.m_itemData?.m_shared : null;
-
-            return shared != null
-                   && shared.m_icons != null
-                   && shared.m_icons.Length > 0
-                   && !string.IsNullOrEmpty(shared.m_name);
+            Console.instance.Print($"Added {items.Count} stack(s); chest now holds {chest.Inventory.m_inventory.Count}.");
         }
 
         private static void Empty()
@@ -237,6 +169,13 @@ namespace BottomlessChest.Commands
             if (chest == null)
             {
                 Console.instance.Print($"No bottomless chest within {SearchRadius}m.");
+                return;
+            }
+
+            if (!Storage.SidecarStore.IsServerAuthority)
+            {
+                Net.ChestRpc.Clear(chest.CurrentStoreId);
+                Console.instance.Print("Asked the server to empty the chest.");
                 return;
             }
 

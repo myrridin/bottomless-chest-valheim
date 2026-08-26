@@ -85,6 +85,40 @@ namespace BottomlessChest.Net
             ToServer(package);
         }
 
+        internal static void Fill(string storeId, int stacks, string prefabName)
+        {
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.Fill);
+            package.Write(storeId);
+            package.Write(stacks);
+            package.Write(prefabName ?? string.Empty);
+            ToServer(package);
+        }
+
+        internal static void Clear(string storeId)
+        {
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.Clear);
+            package.Write(storeId);
+            ToServer(package);
+        }
+
+        /// <summary>
+        /// Offers the player's stackable items to the chest.
+        /// </summary>
+        /// <remarks>
+        /// Sent whole because a player inventory is a few dozen items at most - unlike the
+        /// chest, which is why this direction can afford what the other cannot.
+        /// </remarks>
+        internal static void StackAll(string storeId, byte[] candidateBytes)
+        {
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.StackAll);
+            package.Write(storeId);
+            package.Write(candidateBytes);
+            ToServer(package);
+        }
+
         internal static void Close(string storeId)
         {
             var package = new ZPackage();
@@ -194,6 +228,105 @@ namespace BottomlessChest.Net
                     break;
                 }
 
+                case ChestMessage.Fill:
+                {
+                    var stacks = package.ReadInt();
+                    var prefabName = package.ReadString();
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
+                    {
+                        break;
+                    }
+
+                    // Generated on the server: both ends share an item database, so sending
+                    // a hundred thousand stacks over the wire would be pointless.
+                    var items = TestData.Build(stacks, prefabName, out var error);
+                    if (error != null)
+                    {
+                        Plugin.Log.LogWarning($"Fill refused for chest {storeId}: {error}");
+                        break;
+                    }
+
+                    foreach (var item in items)
+                    {
+                        session.Add(item);
+                    }
+
+                    ChestSessions.Persist(session);
+                    Plugin.Log.LogInfo($"Added {items.Count} filler stacks to chest {storeId}.");
+                    SendPage(sender, session, -1);
+                    break;
+                }
+
+                case ChestMessage.Clear:
+                {
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
+                    {
+                        break;
+                    }
+
+                    var before = session.TotalCount;
+                    session.Inventory.m_inventory.Clear();
+                    session.Touch();
+                    ChestSessions.Persist(session);
+
+                    Plugin.Log.LogInfo($"Emptied chest {storeId} of {before} stacks.");
+                    SendPage(sender, session, 0);
+                    break;
+                }
+
+                case ChestMessage.StackAll:
+                {
+                    var offered = Deserialize(package.ReadByteArray());
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
+                    {
+                        break;
+                    }
+
+                    // Only items the chest already holds are taken, which is what "stack"
+                    // means as opposed to "dump everything in".
+                    var held = new HashSet<string>(System.StringComparer.Ordinal);
+                    foreach (var item in session.Inventory.m_inventory)
+                    {
+                        held.Add(StackKey(item));
+                    }
+
+                    var kept = new List<int>();
+                    for (var i = 0; i < offered.Count; i++)
+                    {
+                        var item = offered[i];
+                        if (item.m_shared.m_maxStackSize <= 1 || !held.Contains(StackKey(item)))
+                        {
+                            continue;
+                        }
+
+                        session.Add(item);
+                        kept.Add(i);
+                    }
+
+                    if (kept.Count > 0)
+                    {
+                        ChestSessions.Persist(session);
+                    }
+
+                    var stacked = new ZPackage();
+                    stacked.Write((int)ChestMessage.Stacked);
+                    stacked.Write(storeId);
+                    stacked.Write(kept.Count);
+                    foreach (var index in kept)
+                    {
+                        stacked.Write(index);
+                    }
+
+                    _rpc.SendPackage(sender, stacked);
+                    SendPage(sender, session, -1);
+                    break;
+                }
+
                 case ChestMessage.Close:
                     ChestSessions.Release(storeId);
                     break;
@@ -205,8 +338,13 @@ namespace BottomlessChest.Net
         /// <summary>Sends one window of items. A negative row means "keep the current one".</summary>
         private static void SendPage(long peer, ChestSession session, int scrollRow)
         {
-            var row = scrollRow < 0 ? session.LastScrollRow : scrollRow;
-            var page = session.Page(row, Filter.ChestView.PageSlots);
+            var requested = scrollRow < 0 ? session.LastScrollRow : scrollRow;
+            var page = session.Page(requested, Filter.ChestView.PageSlots);
+
+            // Page clamps to what actually exists. Echoing the requested row instead would
+            // leave the client believing it is scrolled further than it is, and its own
+            // clamp would then refuse to move.
+            var row = session.LastScrollRow;
 
             var reply = new ZPackage();
             reply.Write((int)ChestMessage.PageResult);
@@ -219,6 +357,10 @@ namespace BottomlessChest.Net
 
             _rpc.SendPackage(peer, reply);
         }
+
+        /// <summary>Identity for stacking: same item, same quality, same variant.</summary>
+        private static string StackKey(ItemDrop.ItemData item) =>
+            $"{item.m_shared.m_name}|{item.m_quality}|{item.m_variant}";
 
         private static byte[] Serialize(List<ItemDrop.ItemData> items)
         {
@@ -276,6 +418,19 @@ namespace BottomlessChest.Net
                 case ChestMessage.Accepted:
                     Filter.ChestView.ApplyAccepted();
                     break;
+
+                case ChestMessage.Stacked:
+                {
+                    var count = package.ReadInt();
+                    var kept = new List<int>(count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        kept.Add(package.ReadInt());
+                    }
+
+                    Filter.ChestView.ApplyStacked(kept);
+                    break;
+                }
             }
 
             yield break;

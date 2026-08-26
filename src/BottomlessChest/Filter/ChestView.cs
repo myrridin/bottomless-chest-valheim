@@ -47,6 +47,28 @@ namespace BottomlessChest.Filter
         private static bool _awaitingPage;
         private static ItemDrop.ItemData _pendingPut;
 
+        /// <summary>
+        /// Last known stack count per chest, so a closed chest can still be judged empty.
+        /// </summary>
+        /// <remarks>
+        /// A client holds nothing while a chest is shut, so without this there is no way to
+        /// tell an empty chest from an unopened one - and the difference decides whether it
+        /// is safe to let someone tear it down.
+        /// </remarks>
+        private static readonly Dictionary<string, int> KnownTotals =
+            new Dictionary<string, int>(System.StringComparer.Ordinal);
+
+        /// <summary>Stack count for a chest if we have seen it, otherwise null.</summary>
+        internal static int? KnownTotalFor(string storeId)
+        {
+            if (!string.IsNullOrEmpty(storeId) && KnownTotals.TryGetValue(storeId, out var total))
+            {
+                return total;
+            }
+
+            return null;
+        }
+
         // Reused across keystrokes: at a hundred thousand stacks, allocating two lists per
         // character typed is a large amount of garbage for no reason.
         private static readonly List<ItemDrop.ItemData> Matched = new List<ItemDrop.ItemData>();
@@ -162,6 +184,7 @@ namespace BottomlessChest.Filter
             _awaitingPage = false;
             _remoteStoreId = null;
             _pendingPut = null;
+            _offered = null;
             _owner = null;
             _target = null;
             _view = null;
@@ -252,9 +275,17 @@ namespace BottomlessChest.Filter
 
         private static int VisibleRowsFor(Inventory inventory) => VisibleRows;
 
+        /// <summary>Rows of items a page actually carries.</summary>
+        /// <remarks>
+        /// A remote page holds one row fewer than the window, to keep a slot free for
+        /// dropping. The client's scroll clamp has to agree with the server's or the last
+        /// row becomes unreachable.
+        /// </remarks>
+        private static int RowsCarried => _remote ? VisibleRows - 1 : VisibleRows;
+
         private static int MaxScrollRow()
         {
-            var rows = TotalRows - VisibleRows;
+            var rows = TotalRows - RowsCarried;
             return rows < 0 ? 0 : rows;
         }
 
@@ -369,8 +400,13 @@ namespace BottomlessChest.Filter
             _version = version;
             _remoteTotal = total;
             _matchCount = matches;
+            KnownTotals[storeId] = total;
             _scrollRow = scrollRow;
             _awaitingPage = false;
+
+            Plugin.Log.LogDebug(
+                $"Page: {items.Count} items at row {scrollRow}, {matches}/{total} match, " +
+                $"max row {MaxScrollRow()}, v{version}.");
 
             var live = _target.m_inventory;
             live.Clear();
@@ -418,6 +454,72 @@ namespace BottomlessChest.Filter
 
             Player.m_localPlayer?.GetInventory()?.RemoveItem(_pendingPut);
             _pendingPut = null;
+        }
+
+        /// <summary>Items the player has that are worth offering to a chest.</summary>
+        private static List<ItemDrop.ItemData> _offered;
+
+        /// <summary>Offers the player's stackable items to a remote chest.</summary>
+        internal static bool RequestStackAll()
+        {
+            if (!_remote)
+            {
+                return false;
+            }
+
+            var player = Player.m_localPlayer?.GetInventory();
+            if (player == null)
+            {
+                return false;
+            }
+
+            _offered = new List<ItemDrop.ItemData>();
+            foreach (var item in player.m_inventory)
+            {
+                if (item.m_shared.m_maxStackSize > 1 && !item.m_equipped)
+                {
+                    _offered.Add(item);
+                }
+            }
+
+            if (_offered.Count == 0)
+            {
+                return true;
+            }
+
+            var scratch = new Inventory("offer", null, Width, 64);
+            scratch.m_inventory.AddRange(_offered);
+
+            var package = new ZPackage();
+            scratch.Save(package);
+
+            Net.ChestRpc.StackAll(_remoteStoreId, package.GetArray());
+            return true;
+        }
+
+        /// <summary>Drops the items the server confirmed it kept.</summary>
+        internal static void ApplyStacked(List<int> keptIndices)
+        {
+            var player = Player.m_localPlayer?.GetInventory();
+            if (player == null || _offered == null)
+            {
+                return;
+            }
+
+            foreach (var index in keptIndices)
+            {
+                if (index >= 0 && index < _offered.Count)
+                {
+                    player.RemoveItem(_offered[index]);
+                }
+            }
+
+            if (keptIndices.Count > 0 && Player.m_localPlayer != null)
+            {
+                Player.m_localPlayer.Message(MessageHud.MessageType.Center, $"$msg_added {keptIndices.Count}");
+            }
+
+            _offered = null;
         }
 
         /// <summary>Asks the server for items at the given page slots.</summary>

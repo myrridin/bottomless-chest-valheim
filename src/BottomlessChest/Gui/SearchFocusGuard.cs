@@ -63,6 +63,12 @@ namespace BottomlessChest.Gui
                 }
             }
 
+            if (_input.isFocused && Input.GetKeyDown(KeyCode.Escape))
+            {
+                HandleEscape();
+                return;
+            }
+
             if (_input.isFocused == _blocking)
             {
                 return;
@@ -71,6 +77,26 @@ namespace BottomlessChest.Gui
             _blocking = _input.isFocused;
             GUIManager.BlockInput(_blocking);
             Plugin.Log.LogDebug($"Search box focus: {_blocking}");
+        }
+
+        /// <summary>
+        /// Escape clears the search if there is one, and otherwise closes the chest.
+        /// </summary>
+        /// <remarks>
+        /// Blocking game input while the box has focus also stops Escape reaching the game,
+        /// so without this it takes two presses to leave: one to drop focus and one to
+        /// actually close. Handling it here makes the first press do what was meant.
+        /// </remarks>
+        private void HandleEscape()
+        {
+            if (!string.IsNullOrEmpty(_input.text))
+            {
+                _input.text = string.Empty;
+                return;
+            }
+
+            Release();
+            InventoryGui.instance?.Hide();
         }
 
         private void OnDisable() => Release();

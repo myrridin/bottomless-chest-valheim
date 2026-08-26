@@ -30,5 +30,17 @@ namespace BottomlessChest.Net
 
         /// <summary>Client is done with the chest; the server may persist and forget it.</summary>
         Close = 7,
+
+        /// <summary>Development only: ask the server to generate filler stacks.</summary>
+        Fill = 8,
+
+        /// <summary>Development only: ask the server to empty the chest.</summary>
+        Clear = 9,
+
+        /// <summary>Client offers stackable items; the server keeps the ones it can merge.</summary>
+        StackAll = 10,
+
+        /// <summary>Server names which offered items it kept, by their position in the offer.</summary>
+        Stacked = 11,
     }
 }
