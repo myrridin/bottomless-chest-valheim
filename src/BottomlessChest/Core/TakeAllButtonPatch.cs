@@ -41,7 +41,7 @@ namespace BottomlessChest.Core
                     slots.Add(i);
                 }
 
-                ChestView.RequestTake(slots);
+                ChestView.RequestTake(ChestView.TrimToCapacity(slots));
                 return false;
             }
         }

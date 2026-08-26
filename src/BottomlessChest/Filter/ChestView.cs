@@ -561,6 +561,29 @@ namespace BottomlessChest.Filter
             _offered = null;
         }
 
+        /// <summary>
+        /// Trims a take request to what the player can actually carry.
+        /// </summary>
+        /// <remarks>
+        /// A page holds more than a player has room for. Asking for all of it means the
+        /// server hands over items with nowhere to go, and they end up on the ground - the
+        /// chest empties by more than the player receives, which reads as taking too much.
+        /// One free slot per item is conservative, since stacking may let more fit, but it
+        /// never scatters anything.
+        /// </remarks>
+        internal static List<int> TrimToCapacity(IReadOnlyList<int> pageSlots)
+        {
+            var room = Player.m_localPlayer?.GetInventory()?.GetEmptySlots() ?? 0;
+            var trimmed = new List<int>(System.Math.Min(room, pageSlots.Count));
+
+            for (var i = 0; i < pageSlots.Count && trimmed.Count < room; i++)
+            {
+                trimmed.Add(pageSlots[i]);
+            }
+
+            return trimmed;
+        }
+
         /// <summary>Asks the server for items at the given page slots.</summary>
         internal static void RequestTake(IReadOnlyList<int> pageSlots)
         {
