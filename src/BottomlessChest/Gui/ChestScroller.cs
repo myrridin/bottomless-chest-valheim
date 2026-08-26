@@ -20,6 +20,9 @@ namespace BottomlessChest.Gui
                 return;
             }
 
+            // Flush any page request the scroll throttle is holding back.
+            ChestView.Tick();
+
             var delta = Input.mouseScrollDelta.y;
             if (Mathf.Abs(delta) < 0.01f)
             {

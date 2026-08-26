@@ -265,8 +265,7 @@ namespace BottomlessChest.Filter
             if (_remote)
             {
                 _scrollRow = clamped;
-                _awaitingPage = true;
-                Net.ChestRpc.RequestPage(_remoteStoreId, _query, clamped);
+                RequestPageThrottled();
                 return true;
             }
 
@@ -277,6 +276,32 @@ namespace BottomlessChest.Filter
         }
 
         internal static int MaxScroll => MaxScrollRow();
+
+        /// <summary>Asks for a page, no more often than the interval allows.</summary>
+        private static void RequestPageThrottled()
+        {
+            var now = Time.realtimeSinceStartup;
+
+            if (now - _lastPageRequestAt < PageRequestInterval)
+            {
+                _pageRequestPending = true;
+                return;
+            }
+
+            _pageRequestPending = false;
+            _lastPageRequestAt = now;
+            _awaitingPage = true;
+            Net.ChestRpc.RequestPage(_remoteStoreId, _query, _scrollRow);
+        }
+
+        /// <summary>Flushes a throttled request once the interval has passed.</summary>
+        internal static void Tick()
+        {
+            if (_remote && _pageRequestPending)
+            {
+                RequestPageThrottled();
+            }
+        }
 
         internal static void OnInventoryChanged(Inventory inventory)
         {
@@ -517,6 +542,21 @@ namespace BottomlessChest.Filter
         private static List<ItemDrop.ItemData> _offered;
 
         private static float _offerSentAt;
+        private static float _lastPageRequestAt;
+        private static bool _pageRequestPending;
+
+        /// <summary>
+        /// Shortest gap between page requests while scrolling.
+        /// </summary>
+        /// <remarks>
+        /// Dragging the scrollbar across a long chest crosses hundreds of rows, and asking
+        /// the server for a page at every one floods it. The window follows the drag
+        /// immediately; only the fetching is rationed.
+        /// </remarks>
+        private const float PageRequestInterval = 0.08f;
+
+        /// <summary>True while a scroll has outrun the last page request.</summary>
+        internal static bool PageRequestPending => _pageRequestPending;
 
         /// <summary>How long to wait for an answer before allowing another offer.</summary>
         private const float OfferTimeoutSeconds = 5f;

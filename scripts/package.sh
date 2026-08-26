@@ -26,6 +26,7 @@ for f in BottomlessChest.dll BottomlessChest.Logic.dll; do
 done
 
 cp package/manifest.json package/README.md package/CHANGELOG.md "$STAGE/"
+[ -f package/LICENSE ] && cp package/LICENSE "$STAGE/"
 
 if [ -f package/icon.png ]; then
     cp package/icon.png "$STAGE/"

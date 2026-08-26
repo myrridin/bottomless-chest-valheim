@@ -83,8 +83,13 @@ namespace BottomlessChest.Gui
                 ? 1f
                 : Mathf.Clamp(carried / (float)total, MinimumHandle, 1f);
 
-            var fraction = max <= 0 ? 0f : ChestView.ScrollRow / (float)max;
-            _bar.SetValueWithoutNotify(TopFraction(fraction));
+            // Do not rewrite the handle while a scroll is still catching up: the row is
+            // quantised, so writing it back mid-drag drags the handle away from the cursor.
+            if (!ChestView.PageRequestPending)
+            {
+                var fraction = max <= 0 ? 0f : ChestView.ScrollRow / (float)max;
+                _bar.SetValueWithoutNotify(TopFraction(fraction));
+            }
 
             _writing = false;
         }
