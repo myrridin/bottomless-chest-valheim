@@ -20,6 +20,7 @@ namespace BottomlessChest.Gui
         private InputField _input;
         private bool _blocking;
         private int _focusAttemptsLeft;
+        private bool _wasFocused;
 
         private void Awake()
         {
@@ -63,11 +64,17 @@ namespace BottomlessChest.Gui
                 }
             }
 
-            if (_input.isFocused && Input.GetKeyDown(KeyCode.Escape))
+            // Unity's InputField handles Escape in its own update and deactivates itself,
+            // so by the time this runs focus is already gone. Remembering last frame is what
+            // makes the first press count.
+            if ((_input.isFocused || _wasFocused) && Input.GetKeyDown(KeyCode.Escape))
             {
+                _wasFocused = false;
                 HandleEscape();
                 return;
             }
+
+            _wasFocused = _input.isFocused;
 
             if (_input.isFocused == _blocking)
             {

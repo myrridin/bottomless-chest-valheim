@@ -13,7 +13,7 @@ namespace BottomlessChest.Gui
     internal static class SearchBox
     {
         /// <summary>How far above the chest title the search box sits.</summary>
-        private const float SearchBoxLift = 16f;
+        private const float SearchBoxLift = 14f;
 
         /// <summary>Gap between the search box and the count line beneath it.</summary>
         private const float StatusGap = 24f;
