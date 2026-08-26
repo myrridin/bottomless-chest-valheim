@@ -22,8 +22,15 @@ namespace BottomlessChest.Gui
     /// </remarks>
     internal sealed class ChestScrollbarBridge : MonoBehaviour
     {
-        /// <summary>Smallest handle to leave grabbable, however long the chest is.</summary>
-        private const float MinimumHandle = 0.06f;
+        /// <summary>
+        /// Smallest handle to leave grabbable, however long the chest is.
+        /// </summary>
+        /// <remarks>
+        /// A true proportional handle is a hairline once a chest holds thousands of rows,
+        /// so it is floored at something you can actually grab. The trade is that the
+        /// handle stops representing how much of the chest is on screen.
+        /// </remarks>
+        private const float MinimumHandle = 0.12f;
 
         private Scrollbar _bar;
         private ScrollRect _detachedFrom;

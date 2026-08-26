@@ -45,7 +45,8 @@
     <ProjectReference Include="..\BottomlessChest.Logic\BottomlessChest.Logic.csproj" />
   </ItemGroup>
 
-  <Target Name="DeployToProfile" AfterTargets="Build" Condition="'$(DeployDir)' != '' AND Exists('$(R2_PROFILE)')">
+  <!-- SkipDeploy lets a packaging build run without touching live installs. -->
+  <Target Name="DeployToProfile" AfterTargets="Build" Condition="'$(SkipDeploy)' != 'true' AND '$(DeployDir)' != '' AND Exists('$(R2_PROFILE)')">
     <MakeDir Directories="$(DeployDir)" />
     <!-- Retries="0": while Valheim is running it holds a mapped section on the DLL and the
          copy can never succeed, so retrying just buries the real reason in warnings. -->

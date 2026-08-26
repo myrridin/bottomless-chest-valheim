@@ -17,7 +17,9 @@ VERSION=$(grep -oP '"version_number":\s*"\K[^"]+' package/manifest.json)
 OUT="dist/BottomlessChest-$VERSION.zip"
 
 echo "Building $VERSION..."
-"$DOTNET" build src/BottomlessChest/BottomlessChest.csproj -c Release -v q --nologo >/dev/null
+# SkipDeploy: packaging must not write into the live profile or the server,
+# which would disturb whatever is being tested.
+"$DOTNET" build src/BottomlessChest/BottomlessChest.csproj -c Release -p:SkipDeploy=true -v q --nologo >/dev/null
 [ -d "src/BottomlessChest/bin/Release" ] && BIN="src/BottomlessChest/bin/Release"
 
 for f in BottomlessChest.dll BottomlessChest.Logic.dll; do
