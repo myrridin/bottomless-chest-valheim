@@ -480,7 +480,7 @@ namespace BottomlessChest.Net
                         kept.Add(package.ReadInt());
                     }
 
-                    Filter.ChestView.ApplyStacked(kept);
+                    Filter.ChestView.ApplyStacked(storeId, kept);
                     break;
                 }
             }

@@ -539,9 +539,25 @@ namespace BottomlessChest.Filter
         /// the player kept them too. Duplication, from exactly the state the authoritative
         /// round trip was supposed to prevent.
         /// </remarks>
-        private static List<ItemDrop.ItemData> _offered;
+        /// <summary>
+        /// Items offered to each chest and awaiting that chest's answer, keyed by store.
+        /// </summary>
+        /// <remarks>
+        /// Per chest rather than one at a time. The guard exists because the server answers
+        /// with positions into the offer, so two offers to the *same* chest would make the
+        /// first answer name the wrong items - offers to different chests are independent.
+        /// A single global guard also broke ValheimPlus's stack-to-nearby-chests, which
+        /// loops over containers and would have reached only the first of ours.
+        /// </remarks>
+        private static readonly Dictionary<string, PendingOffer> Offers =
+            new Dictionary<string, PendingOffer>(System.StringComparer.Ordinal);
 
-        private static float _offerSentAt;
+        private sealed class PendingOffer
+        {
+            internal List<ItemDrop.ItemData> Items;
+            internal float SentAt;
+        }
+
         private static float _lastPageRequestAt;
         private static bool _pageRequestPending;
 
@@ -566,8 +582,7 @@ namespace BottomlessChest.Filter
         /// </summary>
         /// <remarks>
         /// Takes the store id rather than reading the open view, because depositing by
-        /// holding the use key happens against a closed chest - there is no view then, and
-        /// keying off one meant the deposit silently did nothing.
+        /// holding the use key happens against a closed chest.
         /// </remarks>
         internal static bool RequestStackAll(string storeId)
         {
@@ -582,54 +597,56 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
-            // One offer at a time: the server answers with positions into the offer, so a
-            // second one would make the first answer name the wrong items.
-            if (_offered != null && Time.realtimeSinceStartup - _offerSentAt < OfferTimeoutSeconds)
+            // One offer per chest at a time, expiring so a lost answer cannot wedge it.
+            if (Offers.TryGetValue(storeId, out var inFlight)
+                && Time.realtimeSinceStartup - inFlight.SentAt < OfferTimeoutSeconds)
             {
                 return true;
             }
 
-            _offered = new List<ItemDrop.ItemData>();
+            var offered = new List<ItemDrop.ItemData>();
             foreach (var item in player.m_inventory)
             {
                 if (item.m_shared.m_maxStackSize > 1 && !item.m_equipped)
                 {
-                    _offered.Add(item);
+                    offered.Add(item);
                 }
             }
 
-            Plugin.Log.LogDebug($"Offering {_offered.Count} stackable item(s) to chest {storeId}.");
+            Plugin.Log.LogDebug($"Offering {offered.Count} stackable item(s) to chest {storeId}.");
 
-            if (_offered.Count == 0)
+            if (offered.Count == 0)
             {
                 return true;
             }
 
             var scratch = new Inventory("offer", null, Width, 64);
-            scratch.m_inventory.AddRange(_offered);
+            scratch.m_inventory.AddRange(offered);
 
             var package = new ZPackage();
             scratch.Save(package);
 
-            _offerSentAt = Time.realtimeSinceStartup;
+            Offers[storeId] = new PendingOffer { Items = offered, SentAt = Time.realtimeSinceStartup };
             Net.ChestRpc.StackAll(storeId, package.GetArray());
             return true;
         }
 
-        /// <summary>Drops the items the server confirmed it kept.</summary>
-        internal static void ApplyStacked(List<int> keptIndices)
+        /// <summary>Drops the items the given chest confirmed it kept.</summary>
+        internal static void ApplyStacked(string storeId, List<int> keptIndices)
         {
             var player = Player.m_localPlayer?.GetInventory();
-            if (player == null || _offered == null)
+            if (player == null || !Offers.TryGetValue(storeId, out var offer))
             {
                 return;
             }
 
+            Offers.Remove(storeId);
+
             foreach (var index in keptIndices)
             {
-                if (index >= 0 && index < _offered.Count)
+                if (index >= 0 && index < offer.Items.Count)
                 {
-                    player.RemoveItem(_offered[index]);
+                    player.RemoveItem(offer.Items[index]);
                 }
             }
 
@@ -637,8 +654,6 @@ namespace BottomlessChest.Filter
             {
                 Player.m_localPlayer.Message(MessageHud.MessageType.Center, $"$msg_added {keptIndices.Count}");
             }
-
-            _offered = null;
         }
 
         /// <summary>
