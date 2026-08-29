@@ -169,6 +169,8 @@ namespace BottomlessChest.Filter
 
         internal static void Begin(Inventory inventory, Core.BottomlessContainer owner)
         {
+            Core.PatchAudit.ReportOnce();
+
             _owner = owner;
             _target = inventory;
             _query = string.Empty;
@@ -312,7 +314,12 @@ namespace BottomlessChest.Filter
 
             if (_target != null && ReferenceEquals(_target, inventory))
             {
+                Plugin.Log.LogDebug($"Chest changed: {inventory.m_inventory.Count} stacks; re-laying out.");
                 Reapply();
+            }
+            else if (_target != null)
+            {
+                Plugin.Log.LogDebug("Chest changed, but on a different inventory than the open view.");
             }
         }
 
@@ -781,6 +788,13 @@ namespace BottomlessChest.Filter
             for (var i = _windowStart; i < end; i++)
             {
                 items.Add(source[i]);
+            }
+
+            if (items.Count != source.Count)
+            {
+                Plugin.Log.LogWarning(
+                    $"View shows {items.Count} of {source.Count} stacks " +
+                    $"(window {_windowStart}..{_windowEnd}) - items outside it will not appear.");
             }
 
             return _view;
