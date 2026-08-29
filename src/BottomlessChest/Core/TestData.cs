@@ -80,7 +80,13 @@ namespace BottomlessChest.Core
             for (var i = 0; i < stacks; i++)
             {
                 var template = templates[i % templates.Count];
-                var item = template.m_itemData.Clone();
+
+                // Same reason as the loader: shared data has to come from something that
+                // has been through ItemDrop.Awake, or filled stacks are sized by vanilla
+                // limits while the rest of the game uses a mod's.
+                var source = Storage.ItemTemplates.For(template.gameObject.name)
+                             ?? template.m_itemData;
+                var item = source.Clone();
 
                 item.m_dropPrefab = template.gameObject;
                 item.m_stack = Mathf.Max(1, item.m_shared.m_maxStackSize);

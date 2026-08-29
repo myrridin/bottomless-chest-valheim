@@ -85,7 +85,11 @@ namespace BottomlessChest.Storage
                         continue;
                     }
 
-                    var item = drop.m_itemData.Clone();
+                    // Cloning the prefab directly would skip ItemDrop.Awake, and with it any
+                    // mod that adjusts shared item data there - stack size, weight,
+                    // teleportability. The template has been through Awake exactly once.
+                    var source = ItemTemplates.For(name) ?? drop.m_itemData;
+                    var item = source.Clone();
                     item.m_dropPrefab = prefab;
                     item.m_stack = stack;
                     item.m_durability = durability;
