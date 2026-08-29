@@ -784,17 +784,37 @@ namespace BottomlessChest.Filter
             items.Clear();
 
             var source = _target.m_inventory;
-            var end = Mathf.Min(_windowEnd, source.Count);
-            for (var i = _windowStart; i < end; i++)
+            var start = Mathf.Clamp(_windowStart, 0, source.Count);
+            var end = Mathf.Clamp(Mathf.Min(_windowEnd, start + WindowSlots), start, source.Count);
+
+            var corrected = 0;
+
+            for (var i = start; i < end; i++)
             {
-                items.Add(source[i]);
+                var item = source[i];
+
+                // The view owns the positions of what it shows. Reapply sets the same
+                // values, but it is not the only thing that can move an item - vanilla
+                // AddItem picks its own slot - and an item drawn from outside the window
+                // indexes past the end of the grid's element list. InventoryGrid.UpdateGui
+                // then throws mid-draw, leaving whatever it had already rendered on screen:
+                // items that look present after being taken, until something forces a
+                // rebuild. Deriving the position here makes that unrepresentable.
+                var pos = GridPacker.PositionOf(i - start, Width);
+                if (item.m_gridPos.x != pos.X || item.m_gridPos.y != pos.Y)
+                {
+                    item.m_gridPos = new Vector2i(pos.X, pos.Y);
+                    corrected++;
+                }
+
+                items.Add(item);
             }
 
-            if (items.Count != source.Count)
+            if (corrected > 0)
             {
-                Plugin.Log.LogWarning(
-                    $"View shows {items.Count} of {source.Count} stacks " +
-                    $"(window {_windowStart}..{_windowEnd}) - items outside it will not appear.");
+                Plugin.Log.LogDebug(
+                    $"Repositioned {corrected} of {items.Count} shown stacks " +
+                    $"(window {start}..{end} of {source.Count}).");
             }
 
             return _view;
