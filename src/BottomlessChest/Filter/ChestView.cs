@@ -31,22 +31,6 @@ namespace BottomlessChest.Filter
     {
         private static Inventory _target;
         private static Inventory _view;
-
-        /// <summary>
-        /// Which item sits in each window slot, so a removal leaves the slot empty.
-        /// </summary>
-        /// <remarks>
-        /// Packing the window straight from list order means taking one item slides every
-        /// item after it up by one, which reads as the grid rearranging itself under the
-        /// cursor. Vanilla leaves a hole, and so do we: slots are held until something
-        /// rebuilds the window - a new search, a scroll, or reopening the chest.
-        /// </remarks>
-        private static readonly ItemDrop.ItemData[] Slots =
-            new ItemDrop.ItemData[Width * VisibleRows];
-
-        /// <summary>Scratch set for working out which items still belong on screen.</summary>
-        private static readonly System.Collections.Generic.HashSet<ItemDrop.ItemData> Shown =
-            new System.Collections.Generic.HashSet<ItemDrop.ItemData>();
         private static string _query = string.Empty;
         private static int _matchCount;
         private static int _scrollRow;
@@ -191,7 +175,6 @@ namespace BottomlessChest.Filter
             _target = inventory;
             _query = string.Empty;
             _scrollRow = 0;
-            ResetSlots();
             _remote = owner != null && !Storage.SidecarStore.IsServerAuthority;
             _version = 0;
             _remoteTotal = 0;
@@ -228,7 +211,6 @@ namespace BottomlessChest.Filter
             _query = string.Empty;
             _matchCount = 0;
             _scrollRow = 0;
-            ResetSlots();
 
             // Repack only if the layout we leave behind would not be displayable; an
             // externally applied sort should survive closing the chest.
@@ -244,7 +226,6 @@ namespace BottomlessChest.Filter
             {
                 _query = query ?? string.Empty;
                 _scrollRow = 0;
-                ResetSlots();
                 _awaitingPage = true;
                 Net.ChestRpc.RequestPage(_remoteStoreId, _query, 0);
                 return;
@@ -253,7 +234,6 @@ namespace BottomlessChest.Filter
             var timer = System.Diagnostics.Stopwatch.StartNew();
             _query = query ?? string.Empty;
             _scrollRow = 0;
-            ResetSlots();
             Reapply();
             var filtered = timer.ElapsedMilliseconds;
             Refresh();
@@ -292,10 +272,6 @@ namespace BottomlessChest.Filter
             }
 
             _scrollRow = clamped;
-
-            // A different row is a different window, so slots are packed afresh rather
-            // than preserving gaps from the row we just left.
-            ResetSlots();
             Reapply();
             Refresh();
             return true;
@@ -428,7 +404,6 @@ namespace BottomlessChest.Filter
                 _windowStart = 0;
                 _windowEnd = items.Count;
                 Core.InventoryCapacity.Apply(_target);
-                SlotsFromPositions();
                 return;
             }
 
@@ -455,7 +430,6 @@ namespace BottomlessChest.Filter
             }
 
             Core.InventoryCapacity.Apply(_target);
-            SyncSlots();
         }
 
         private static void Refresh()
@@ -796,120 +770,6 @@ namespace BottomlessChest.Filter
             _target == null ? -1 : _target.m_inventory.IndexOf(item);
 
         /// <summary>Builds the stand-in inventory holding just the windowed items.</summary>
-        /// <summary>Forgets the current slot layout, so the next sync packs from the top.</summary>
-        private static void ResetSlots()
-        {
-            System.Array.Clear(Slots, 0, Slots.Length);
-        }
-
-        /// <summary>
-        /// Settles which item sits in which slot, keeping the ones already on screen put.
-        /// </summary>
-        /// <remarks>
-        /// Items that left the window free their slot; items that arrived take the lowest
-        /// free one. Everything else stays exactly where the player last saw it, which is
-        /// the whole point - the alternative reflows the grid on every take.
-        /// </remarks>
-        private static void SyncSlots()
-        {
-            var source = _target.m_inventory;
-            var start = Mathf.Clamp(_windowStart, 0, source.Count);
-            var end = Mathf.Clamp(Mathf.Min(_windowEnd, start + Slots.Length), start, source.Count);
-
-            Shown.Clear();
-            for (var i = start; i < end; i++)
-            {
-                Shown.Add(source[i]);
-            }
-
-            // Removing a still-present item leaves the newcomers behind in the set.
-            for (var slot = 0; slot < Slots.Length; slot++)
-            {
-                var held = Slots[slot];
-                if (held != null && !Shown.Remove(held))
-                {
-                    Slots[slot] = null;
-                }
-            }
-
-            if (Shown.Count == 0)
-            {
-                return;
-            }
-
-            // Walk the window in order so newcomers land predictably rather than in
-            // whatever order the set happens to enumerate.
-            var next = 0;
-            for (var i = start; i < end && Shown.Count > 0; i++)
-            {
-                var item = source[i];
-                if (!Shown.Remove(item))
-                {
-                    continue;
-                }
-
-                while (next < Slots.Length && Slots[next] != null)
-                {
-                    next++;
-                }
-
-                if (next >= Slots.Length)
-                {
-                    break;
-                }
-
-                Slots[next] = item;
-            }
-
-            // Settle positions here rather than at render time. Reapply runs inside the
-            // Changed postfix, and anything that reads GetItemAt before the next frame
-            // has to see the same layout the player is looking at.
-            for (var slot = 0; slot < Slots.Length; slot++)
-            {
-                var item = Slots[slot];
-                if (item == null)
-                {
-                    continue;
-                }
-
-                var pos = GridPacker.PositionOf(slot, Width);
-                item.m_gridPos = new Vector2i(pos.X, pos.Y);
-            }
-        }
-
-        /// <summary>
-        /// Reads the slot layout off the items themselves, without moving any of them.
-        /// </summary>
-        /// <remarks>
-        /// Used when the chest is shown unfiltered and the existing layout already fits
-        /// the window. Nothing is repacked there - deliberately, so a sort applied by
-        /// another mod survives - which also means a removal already leaves its slot
-        /// empty. All this has to do is agree with what is on screen.
-        /// </remarks>
-        private static void SlotsFromPositions()
-        {
-            ResetSlots();
-
-            foreach (var item in _target.m_inventory)
-            {
-                var x = item.m_gridPos.x;
-                var y = item.m_gridPos.y;
-
-                // Anything outside the window is simply not shown; the grid has no element
-                // for it, and drawing one would read past the end of the element list.
-                if (x < 0 || y < 0 || x >= Width || y >= VisibleRows)
-                {
-                    continue;
-                }
-
-                var slot = (y * Width) + x;
-                if (Slots[slot] == null)
-                {
-                    Slots[slot] = item;
-                }
-            }
-        }
-
         private static Inventory BuildView()
         {
             if (_view == null)
@@ -923,26 +783,38 @@ namespace BottomlessChest.Filter
             var items = _view.m_inventory;
             items.Clear();
 
-            // The view owns the positions of what it shows. An item drawn from outside the
-            // window indexes past the end of the grid's element list, and
-            // InventoryGrid.UpdateGui throws mid-draw, leaving whatever it had already
-            // rendered on screen. Deriving the position from the slot makes that
-            // unrepresentable: a slot index is always inside the grid.
-            for (var slot = 0; slot < Slots.Length; slot++)
-            {
-                var item = Slots[slot];
-                if (item == null)
-                {
-                    continue;
-                }
+            var source = _target.m_inventory;
+            var start = Mathf.Clamp(_windowStart, 0, source.Count);
+            var end = Mathf.Clamp(Mathf.Min(_windowEnd, start + WindowSlots), start, source.Count);
 
-                var pos = GridPacker.PositionOf(slot, Width);
+            var corrected = 0;
+
+            for (var i = start; i < end; i++)
+            {
+                var item = source[i];
+
+                // The view owns the positions of what it shows. Reapply sets the same
+                // values, but it is not the only thing that can move an item - vanilla
+                // AddItem picks its own slot - and an item drawn from outside the window
+                // indexes past the end of the grid's element list. InventoryGrid.UpdateGui
+                // then throws mid-draw, leaving whatever it had already rendered on screen:
+                // items that look present after being taken, until something forces a
+                // rebuild. Deriving the position here makes that unrepresentable.
+                var pos = GridPacker.PositionOf(i - start, Width);
                 if (item.m_gridPos.x != pos.X || item.m_gridPos.y != pos.Y)
                 {
                     item.m_gridPos = new Vector2i(pos.X, pos.Y);
+                    corrected++;
                 }
 
                 items.Add(item);
+            }
+
+            if (corrected > 0)
+            {
+                Plugin.Log.LogDebug(
+                    $"Repositioned {corrected} of {items.Count} shown stacks " +
+                    $"(window {start}..{end} of {source.Count}).");
             }
 
             return _view;
