@@ -6,16 +6,87 @@ trusting it — the conclusions rest on specific implementation details.
 
 ## Overlapping patches
 
-V+ patches six methods that BottomlessChest also touches.
+V+ patches six methods that BottomlessChest also touches. Every row below was checked
+against the decompiled assembly, and the two that could bite are gated behind V+ config
+settings rather than being unconditionally safe — so read the verdicts as "safe with this
+configuration", not "safe forever".
 
 | Method | V+ does | Verdict |
 |---|---|---|
-| `Inventory.TopFirst` | Postfix, sets `__result = true` when fill-top-to-bottom is on | **Safe.** We prefix and force true for our inventories. Postfixes run even when a prefix cancels, and both want the same value. |
+| `Inventory.TopFirst` | Postfix, sets `__result = true` when `inventoryFillTopToBottom` is on | **Safe either way.** We prefix and force true for our inventories. Postfixes run even when a prefix cancels, and both want the same value. |
 | `Container.RPC_StackResponse` | Postfix, resolves a `TaskCompletionSource` | **Safe.** We prefix and may cancel; its postfix still runs, so V+ does not hang waiting. |
-| `Container.Awake` | Resizes chests by prefab name (wood, personal, iron) | **Safe.** Ours is `bottomless_chest` and matches none. `InventoryCapacity.Apply` overwrites dimensions regardless. |
+| `Container.Awake` | Resizes chests by inventory name | **Safe, but fragile — see below.** |
 | `Inventory` constructor | Resizes inventories named `Grave`, `Inventory`, `$piece_tombstone_container` | **Safe.** Ours are named `bottomless`, `page`, `offer`, `put`. A match would have corrupted the capacity maths. |
-| `Inventory.MoveAll` | Part of its take-all handling | **Safe.** Our paged paths intercept the callers before this is reached. |
-| `InventoryGrid.UpdateGui` | Prefix that forces an element rebuild when counts disagree | **Watch.** Both prefix it. Ordering matters where we swap the grid's inventory in single-player. Would show as grid rendering oddities, not item loss. |
+| `Inventory.MoveAll` | Merges stacks before vanilla runs, when `mergeWithExistingStacks` is on | **Hazard when enabled — see below.** |
+| `InventoryGrid.UpdateGui` | Prefix that forces an element rebuild when the element list is stale | **Safe.** Its condition is unreachable for our grid — see below. |
+
+### `Container.Awake` — safe only because of one string
+
+V+ switches on the *inventory's* name, not the prefab name:
+
+```csharp
+switch (___m_inventory.m_name)
+{
+    case "$piece_chestprivate":
+        height = Helper.Clamp(Configuration.Current.Inventory.personalChestRows, 2, 20);
+        width  = Helper.Clamp(Configuration.Current.Inventory.personalChestColumns, 3, 8);
+        break;
+    ...
+}
+```
+
+`Container.Awake` builds its inventory as `new Inventory(m_name, ...)`, so the inventory
+inherits whatever `Container.m_name` held at that moment. We set
+`container.m_name = "$piece_bottomlesschest"` on the *prefab*, before any instance awakes,
+so the switch finds no case.
+
+That is the whole reason the chest is not clamped to the personal chest's 3x2. Our piece is
+cloned from `piece_chest_private`, and the default V+ config sets `personalChestRows = 2`
+and `personalChestColumns = 3` — so anything that lets the vanilla name reach the inventory
+constructor caps the chest at six slots. **Do not set `container.m_name` to a vanilla token
+for display purposes**, and do not move that assignment to instance time.
+
+### `Inventory.MoveAll` — a real hazard if `mergeWithExistingStacks` is enabled
+
+The prefix mutates both inventories directly:
+
+```csharp
+item2.m_stack += num;
+if (item.m_stack == num) { fromInventory.RemoveItem(item); break; }
+item.m_stack -= num;
+```
+
+It never calls `Changed()`. Our whole redraw and re-layout chain hangs off the
+`Inventory.Changed` postfix, so items moved this way arrive without the grid ever hearing
+about it. Expect stale counts and items that appear only after a reopen. It is inert while
+`mergeWithExistingStacks = false`; if that is switched on, this is the first place to look.
+
+### `InventoryGrid.UpdateGui` — condition unreachable for our grid
+
+```csharp
+int width  = __instance.m_inventory.GetWidth();
+int height = __instance.m_inventory.GetHeight();
+if (__instance.m_width == width && __instance.m_height == height
+    && __instance.m_elements.Count != width * height)
+{
+    __instance.m_width = ((__instance.m_width != 1) ? 1 : 2);
+}
+```
+
+This is V+ forcing a rebuild that vanilla would skip, by perturbing `m_width` so the
+dimensions no longer match. Both prefix orderings are benign for us:
+
+- **V+ first.** It reads the real inventory, which is 8 by however many rows the contents
+  need. That rarely equals the grid's 8x6, so the condition fails. We then swap our view in
+  and vanilla draws it.
+- **Us first.** It reads our view, which is always exactly 8x6. The condition then needs a
+  stale element list, and the view's dimensions never change, so vanilla keeps the element
+  count in step.
+
+The ordering that would matter — V+ perturbing `m_width` while the *real* inventory is
+still installed — would make vanilla rebuild an element list sized to the whole chest, one
+GameObject per slot. Display windowing exists to prevent exactly that, which is why the
+view's dimensions are pinned rather than derived from the contents.
 
 ## Stack size multiplier
 
