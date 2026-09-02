@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """Merges chest stores from several sidecar files into one, repacking grid positions.
 
-Used to recover contents from a .old backup after a bad save. Later files win on
-duplicate item identity only in the sense that all stacks are kept - nothing is dropped.
+Used to recover contents from a .old backup after a bad save.
+
+Sources are treated as snapshots of the same chest at different times, so a stack
+present in two of them is the same stack seen twice, not two stacks. Identical
+entries are therefore counted, not collapsed: the result holds as many copies of
+an entry as the source that held the most. Summing them would invent items;
+keeping one would destroy them.
+
+That distinction is the whole point of this script. Deduplicating on identity
+alone once turned three Wood x50 stacks into one - a hundred wood destroyed by
+the tool being used to recover a hundred and fifty-three.
 """
 import struct, io, sys, os
+from collections import Counter
 
 def r7(b):
     n = sh = 0
@@ -72,19 +82,36 @@ def read_file(path):
     return out
 
 WIDTH = 8
+
+def signature(it):
+    """Everything that distinguishes one entry from another, except where it sat.
+
+    Grid position is excluded because the merge repacks anyway. Everything else is
+    included: two swords alike in name and stack size are still different swords if
+    their durability, crafter or custom data differ, and collapsing them would
+    silently destroy one item's condition.
+    """
+    return (it['name'], it['stack'], it['dur'], it['qual'], it['var'], it['equip'],
+            it['crafter'], it['cname'], tuple(it['cd']), it['wlevel'], it['picked'])
+
 target = sys.argv[1]
 sources = sys.argv[2:]
 
 merged = {}
 for src in sources:
     for sid, (ticks, inv_ver, items) in read_file(src).items():
-        cur = merged.setdefault(sid, (ticks, inv_ver, []))
-        seen = {(i['name'], i['stack'], i['qual'], i['var']) for i in cur[2]}
+        cur_ticks, cur_ver, cur_items = merged.setdefault(sid, (ticks, inv_ver, []))
+        held = Counter(signature(i) for i in cur_items)
+        seen_here = Counter()
         for it in items:
-            key = (it['name'], it['stack'], it['qual'], it['var'])
-            if key not in seen:
-                cur[2].append(it); seen.add(key)
-        merged[sid] = (max(cur[0], ticks), inv_ver, cur[2])
+            key = signature(it)
+            seen_here[key] += 1
+            # Take this copy only where this source holds more of the entry than we
+            # already do. Per distinct entry the result is the largest count any one
+            # source had - never the sum, which would conjure items out of a backup.
+            if seen_here[key] > held[key]:
+                cur_items.append(it)
+        merged[sid] = (max(cur_ticks, ticks), inv_ver, cur_items)
 
 out = io.BytesIO()
 out.write(struct.pack('<I', 0x424C4331))
