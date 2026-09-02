@@ -88,6 +88,11 @@ namespace BottomlessChest.Filter
         private static readonly List<ItemDrop.ItemData> Matched = new List<ItemDrop.ItemData>();
         private static readonly List<ItemDrop.ItemData> Rest = new List<ItemDrop.ItemData>();
 
+        /// <summary>
+        /// Notices contents changing under an open window, since Inventory.Changed cannot.
+        /// </summary>
+        private static readonly ReapplyTrigger Trigger = new ReapplyTrigger();
+
         internal static int MatchCount => _matchCount;
 
         internal static int TotalCount => _remote ? _remoteTotal : (_target?.m_inventory.Count ?? 0);
@@ -181,6 +186,9 @@ namespace BottomlessChest.Filter
             _matchCount = 0;
             _remoteStoreId = owner?.CurrentStoreId;
 
+            // A different chest can hold the same number of stacks as the last one.
+            Trigger.Invalidate();
+
             if (_remote)
             {
                 // Nothing is held locally until the server sends a window.
@@ -211,6 +219,7 @@ namespace BottomlessChest.Filter
             _query = string.Empty;
             _matchCount = 0;
             _scrollRow = 0;
+            Trigger.Invalidate();
 
             // Repack only if the layout we leave behind would not be displayable; an
             // externally applied sort should survive closing the chest.
@@ -354,6 +363,10 @@ namespace BottomlessChest.Filter
             }
 
             var items = _target.m_inventory;
+
+            // Recorded before the work rather than after: both exits below leave a layout
+            // built for exactly this many stacks, and nothing here changes the count.
+            Trigger.NoteApplied(items.Count);
 
             if (string.IsNullOrWhiteSpace(_query))
             {
@@ -834,6 +847,15 @@ namespace BottomlessChest.Filter
                 if (_remote || _target == null || !ReferenceEquals(__instance.m_inventory, _target))
                 {
                     return;
+                }
+
+                // Anything may have added to or taken from the chest since the last frame -
+                // a deposit, another mod, ValheimPlus feeding a nearby station - and none of
+                // it reaches us as an event. Catch up before drawing, so an item that now
+                // matches the search appears without the player retyping it.
+                if (Trigger.NeedsApply(_target.m_inventory.Count))
+                {
+                    Reapply();
                 }
 
                 _swappedOut = __instance.m_inventory;
