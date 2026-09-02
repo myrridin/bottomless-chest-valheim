@@ -136,3 +136,37 @@ Making it work would mean one of:
 
 The third is the only one that stays working without maintenance, and worth raising before
 building either of the others.
+
+## Stations that empty the chest on their own
+
+Several V+ features pull items out of nearby chests without anyone asking, on a one-second
+tick, whenever a station is in range. A bottomless chest is a plain `Container` holding a
+real `Inventory`, so it is as reachable as any other and gets drained like one.
+
+| Feature | Takes | Range from | Logs? |
+|---|---|---|---|
+| Kiln, smelter, furnace, windmill, spinning wheel, eitr refinery | fuel and ore | that station's `autoRange` | **yes**, `Added N ores(...)` / `Added N fuel(...)` at Info |
+| Cooking station — fuel | fuel | `Oven.autoRange` | **yes**, at Info |
+| Cooking station — food | raw food | `CraftFromChest.range` | **no** |
+| Building and crafting | any material | `CraftFromChest.range` | **no** |
+
+The right-hand column is the one that costs time. `PullCookableItemFromNearbyChests` and
+`RemoveItemsFromInventoryAndNearbyChests` both remove items and return silently, so a chest
+can empty steadily with no line in V+'s log, ours, or the game's. It looks exactly like a
+storage mod losing data.
+
+**Nothing is actually lost.** Removal ends in `InventoryAssistant.RemoveItemFromChest`,
+which finishes with `ConveyContainerToNetwork` → `Container.Save()` → our patch → the
+sidecar file. The items moved into a station; they did not vanish.
+
+Two of these do not fire `Inventory.Changed` in any way we can observe, so no event of ours
+runs. `ContentsWatch` exists for this: it polls quantities once a second and reports what
+moved, and whether our window was open at the time. A small exact delta while the chest is
+closed — `RawMeat -2`, `Wood -2` — is a station feeding itself, not a bug.
+
+Confirmed against a real session: twelve raw meat left a chest with no V+ log line at all.
+The watch recorded six unattributed removals summing to exactly twelve, and the store file
+read from outside the game agreed.
+
+**Worth knowing before blaming the mod.** `ignorePrivateAreaCheck` defaults to true on the
+smelter family, so a ward does not stop them, and `autoRange` reaches up to 50 metres.
