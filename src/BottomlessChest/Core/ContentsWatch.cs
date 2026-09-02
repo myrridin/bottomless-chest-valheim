@@ -41,6 +41,7 @@ namespace BottomlessChest.Core
         private Dictionary<string, int> _last;
         private float _nextPollAt;
         private bool _saidItWasTooBig;
+        private bool _openSinceLastReport;
 
         /// <summary>
         /// True only when something will actually print a Debug line.
@@ -86,8 +87,19 @@ namespace BottomlessChest.Core
             _last = null;
         }
 
+        /// <summary>
+        /// Call every frame. Reports at most once per <see cref="IntervalSeconds"/>.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="chestIsOpen"/> accumulates between reports rather than being read
+        /// at report time. Sampling it only when the poll fires blamed the chest for changes
+        /// the player had just made by hand: take 127 wood, close the window, and the poll a
+        /// moment later saw a closed chest and called it unattributed.
+        /// </remarks>
         internal void Poll(Inventory inventory, string label, bool chestIsOpen)
         {
+            _openSinceLastReport |= chestIsOpen;
+
             if (!Enabled || inventory == null || Time.unscaledTime < _nextPollAt)
             {
                 return;
@@ -135,8 +147,10 @@ namespace BottomlessChest.Core
             if (changed != null)
             {
                 Plugin.Log.LogDebug(
-                    $"Contents of {label} changed while {(chestIsOpen ? "open" : "CLOSED - not by us")}: {changed}");
+                    $"Contents of {label} changed while {(_openSinceLastReport ? "open" : "CLOSED - not by us")}: {changed}");
             }
+
+            _openSinceLastReport = false;
         }
     }
 }
