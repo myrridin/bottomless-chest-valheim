@@ -32,6 +32,7 @@ namespace BottomlessChest.Core
         private bool _contentsLoaded;
         private bool _warnedAboutUnloadedSave;
         private bool _loadWasPartial;
+        private readonly ContentsWatch _watch = new ContentsWatch();
 
 
         internal static bool TryResolve(Container container, out BottomlessContainer bottomless) =>
@@ -157,6 +158,27 @@ namespace BottomlessChest.Core
             }
 
             Registry[_container] = this;
+        }
+
+        /// <summary>
+        /// Watches for contents changing underneath us. Debug logging only; see <see cref="ContentsWatch"/>.
+        /// </summary>
+        private void Update()
+        {
+            if (Plugin.Degraded || _container == null || !ContentsWatch.Enabled)
+            {
+                return;
+            }
+
+            var storeId = CurrentStoreId;
+            var label = string.IsNullOrEmpty(storeId)
+                ? $"unbound chest at {transform.position}"
+                : $"chest {storeId.Substring(0, System.Math.Min(8, storeId.Length))} at {transform.position}";
+
+            var open = InventoryGui.instance != null
+                && ReferenceEquals(InventoryGui.instance.m_currentContainer, _container);
+
+            _watch.Poll(_container.m_inventory, label, open);
         }
 
         private void OnDestroy()
@@ -330,6 +352,9 @@ namespace BottomlessChest.Core
         private void LoadIntoInventory(byte[] contents)
         {
             var expected = PeekItemCount(contents);
+
+            // Replacing every stack at once is not a leak; do not report it as one.
+            _watch.Rebaseline();
 
             _container.m_inventory.RemoveAll();
             InventoryCapacity.ApplyFor(_container.m_inventory, expected);
