@@ -317,6 +317,23 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            // Restore the grid's free slots before writing.
+            //
+            // Other mods add to a chest with Inventory.AddItem, which needs a free slot and
+            // silently drops what will not fit. ValheimPlus does it from beehives, sap
+            // collectors, fermenters and every smelter, and each such write ends in
+            // ConveyContainerToNetwork calling Container.Save - so this is the one event
+            // that follows every one of them.
+            //
+            // Re-sizing used to happen on Inventory.Changed. That patch is dead: Changed is
+            // a small private method and Mono inlines it, so the reserve only came back when
+            // the chest was next opened or loaded, shrinking by a slot for every deposit in
+            // between. Not free, but negligible beside the full serialize just below.
+            if (!InventoryCapacity.Suspended)
+            {
+                InventoryCapacity.Apply(_container.m_inventory);
+            }
+
             var package = new ZPackage();
             _container.m_inventory.Save(package);
             SidecarStore.Instance.Put(storeId, package.GetArray());
