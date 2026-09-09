@@ -26,6 +26,8 @@
     <Reference Include="$(ValheimManaged)\assembly_guiutils.dll" Publicize="true" Private="false" />
     <!-- 1.0 moved save-storage types here; FileHelpers now takes a CloudStorageFileGrouping. -->
     <Reference Include="$(ValheimManaged)\Splatform.dll" Private="false" />
+    <!-- GuiInputField: Valheim's TMP_InputField, which unlike the legacy one raises focus events. -->
+    <Reference Include="$(ValheimManaged)\gui_framework.dll" Private="false" />
   </ItemGroup>
 
   <!-- Unity engine assemblies. Referenced wholesale: cheap, and it avoids a rebuild
