@@ -46,8 +46,20 @@ namespace BottomlessChest.Gui
         /// </remarks>
         private const string DropGlyph = "+";
 
+        /// <summary>How much bigger than a stack count the glyph is drawn.</summary>
+        private const float GlyphScale = 3f;
+
+        /// <summary>Faded, so it reads as an invitation rather than as content.</summary>
+        private static readonly Color GlyphColour = new Color(1f, 1f, 1f, 0.45f);
+
         private static TextAlignmentOptions _defaultAlignment;
         private static float _defaultFontSize;
+        private static Color _defaultColour;
+        private static bool _defaultAutoSize;
+        private static Vector2 _defaultAnchorMin;
+        private static Vector2 _defaultAnchorMax;
+        private static Vector2 _defaultOffsetMin;
+        private static Vector2 _defaultOffsetMax;
         private static bool _defaultsCaptured;
 
         [HarmonyPatch(typeof(InventoryGrid), "UpdateGui")]
@@ -104,32 +116,54 @@ namespace BottomlessChest.Gui
                     return;
                 }
 
+                var rect = label.rectTransform;
+
                 if (!_defaultsCaptured)
                 {
                     // Every slot comes from one prefab, so one sample is the default for
                     // all of them - and it has to be taken before we overwrite anything.
                     _defaultAlignment = label.alignment;
                     _defaultFontSize = label.fontSize;
+                    _defaultColour = label.color;
+                    _defaultAutoSize = label.enableAutoSizing;
+                    _defaultAnchorMin = rect.anchorMin;
+                    _defaultAnchorMax = rect.anchorMax;
+                    _defaultOffsetMin = rect.offsetMin;
+                    _defaultOffsetMax = rect.offsetMax;
                     _defaultsCaptured = true;
                 }
 
                 if (isDropSlot)
                 {
+                    // A stack count lives in a corner of the slot, so centring the text
+                    // inside its own box would still leave it in that corner. Stretching
+                    // the box over the whole slot is what puts the glyph in the middle.
+                    rect.anchorMin = Vector2.zero;
+                    rect.anchorMax = Vector2.one;
+                    rect.offsetMin = Vector2.zero;
+                    rect.offsetMax = Vector2.zero;
+
+                    // Auto-sizing would shrink the glyph back to counting-numbers size.
+                    label.enableAutoSizing = false;
                     label.alignment = TextAlignmentOptions.Center;
-                    label.fontSize = _defaultFontSize * 1.8f;
+                    label.fontSize = _defaultFontSize * GlyphScale;
+                    label.color = GlyphColour;
                     label.text = DropGlyph;
                     label.enabled = true;
                     return;
                 }
 
                 // Restored unconditionally. The game decides whether an occupied slot shows
-                // its count, but it never touches alignment or size, so anything we changed
-                // would follow this element to whatever it is reused for next.
-                if (_defaultsCaptured)
-                {
-                    label.alignment = _defaultAlignment;
-                    label.fontSize = _defaultFontSize;
-                }
+                // its count, but it never touches any of this, so anything we changed would
+                // follow the element to whatever it is reused for next.
+                rect.anchorMin = _defaultAnchorMin;
+                rect.anchorMax = _defaultAnchorMax;
+                rect.offsetMin = _defaultOffsetMin;
+                rect.offsetMax = _defaultOffsetMax;
+                label.enableAutoSizing = _defaultAutoSize;
+                label.alignment = _defaultAlignment;
+                label.fontSize = _defaultFontSize;
+                label.color = _defaultColour;
             }
         }
     }

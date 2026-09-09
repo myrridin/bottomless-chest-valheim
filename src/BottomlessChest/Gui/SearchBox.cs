@@ -18,15 +18,13 @@ namespace BottomlessChest.Gui
         /// <summary>Gap between the search box and the count line beneath it.</summary>
         private const float StatusGap = 26f;
 
-        /// <summary>
-        /// Width of the count line. Wider than the search box on purpose.
-        /// </summary>
-        /// <remarks>
-        /// It has to hold something like "141403 of 1000024 items - rows 17660-17664 of
-        /// 125003", which is far longer than anything the box above it shows. Roughly the
-        /// width of the container panel, so it can use the space the chest already occupies.
-        /// </remarks>
-        private const float StatusWidth = 420f;
+        /// <summary>Width of the count line, matching the search box above it.</summary>
+        private const float StatusWidth = 280f;
+
+        // Fitting is measured, which forces a layout pass, so the result is cached against
+        // the text that produced it - UpdateStatus runs every frame the window is open.
+        private static string _lastStatusRaw;
+        private static string _lastStatusFitted;
 
         private static GameObject _field;
         private static GameObject _hiddenTitle;
@@ -179,15 +177,10 @@ namespace BottomlessChest.Gui
                     height: 20f,
                     addContentSizeFitter: false).GetComponent<Text>();
 
-                // "141403 of 1000024 items - rows 17660-17664 of 125003" is a lot wider
-                // than the search box above it. Rather than clip, shrink to fit: the line
-                // is only readable if all of it is there, and a chest this size is exactly
-                // when the numbers matter most.
+                // Overflow rather than wrap so a long line stays one line; Ellipsize below
+                // is what keeps it inside the box.
                 _status.horizontalOverflow = HorizontalWrapMode.Overflow;
                 _status.verticalOverflow = VerticalWrapMode.Truncate;
-                _status.resizeTextForBestFit = true;
-                _status.resizeTextMinSize = 9;
-                _status.resizeTextMaxSize = 13;
 
                 var fieldRect = _field.GetComponent<RectTransform>();
                 var statusRect = _status.rectTransform;
@@ -300,9 +293,53 @@ namespace BottomlessChest.Gui
             var rows = ChestView.TotalRows;
             var visible = ChestView.VisibleRows;
 
-            _status.text = rows > visible
+            _status.text = Ellipsize(rows > visible
                 ? $"{shown}   -   rows {ChestView.ScrollRow + 1}-{Mathf.Min(ChestView.ScrollRow + visible, rows)} of {rows}"
-                : shown;
+                : shown);
+        }
+
+        /// <summary>
+        /// Trims to the width of the box, ending in an ellipsis rather than mid-character.
+        /// </summary>
+        /// <remarks>
+        /// Legacy Text has no ellipsis mode: it clips, which leaves a half-drawn digit and
+        /// no sign that anything is missing. Measuring is a layout pass, so the answer is
+        /// cached and the search is a bisection rather than one character at a time.
+        /// </remarks>
+        private static string Ellipsize(string raw)
+        {
+            if (raw == _lastStatusRaw)
+            {
+                return _lastStatusFitted;
+            }
+
+            _lastStatusRaw = raw;
+            _status.text = raw;
+
+            if (_status.preferredWidth <= StatusWidth)
+            {
+                return _lastStatusFitted = raw;
+            }
+
+            var low = 0;
+            var high = raw.Length;
+
+            while (low < high)
+            {
+                var mid = (low + high + 1) / 2;
+                _status.text = raw.Substring(0, mid) + "...";
+
+                if (_status.preferredWidth <= StatusWidth)
+                {
+                    low = mid;
+                }
+                else
+                {
+                    high = mid - 1;
+                }
+            }
+
+            return _lastStatusFitted = raw.Substring(0, low).TrimEnd() + "...";
         }
 
         private static void Teardown()
