@@ -40,7 +40,17 @@ namespace BottomlessChest.Core
 
             if (SidecarStore.Instance.TryGet(storeId, out var contents) && contents != null && contents.Length > 0)
             {
-                InventorySerializer.Load(inventory, contents, out _);
+                if (!InventorySerializer.Load(inventory, contents, out var expected)
+                    || inventory.m_inventory.Count != expected)
+                {
+                    // Persisting this session would write what we failed to read over what
+                    // is on disk. Refusing the session leaves the stored contents alone.
+                    Plugin.Log.LogError(
+                        $"Refusing to open chest {storeId}: its store did not load completely. " +
+                        "The stored contents are untouched.");
+
+                    return null;
+                }
             }
 
             var session = new ChestSession(storeId, inventory);

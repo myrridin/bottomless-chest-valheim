@@ -241,6 +241,11 @@ namespace BottomlessChest.Net
                     var stacks = package.ReadInt();
                     var prefabName = package.ReadString();
 
+                    if (!TestingAllowed(sender, "fill", storeId))
+                    {
+                        break;
+                    }
+
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
                     {
@@ -269,6 +274,11 @@ namespace BottomlessChest.Net
 
                 case ChestMessage.Clear:
                 {
+                    if (!TestingAllowed(sender, "empty", storeId))
+                    {
+                        break;
+                    }
+
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
                     {
@@ -410,6 +420,35 @@ namespace BottomlessChest.Net
             var package = new ZPackage();
             scratch.Save(package);
             return package.GetArray();
+        }
+
+        /// <summary>
+        /// Whether this machine allows the testing commands to act on its chests.
+        /// </summary>
+        /// <remarks>
+        /// The console gate in BottomlessCommands only governs the machine typing the
+        /// command. These two messages are destructive - "empty" discards a chest outright -
+        /// and the server has no way to know what the sender's config says, or whether the
+        /// sender is running this version at all. A 0.1.0 client predates the setting
+        /// entirely and would happily send either.
+        ///
+        /// So the server decides for its own chests. A peer cannot talk a server into
+        /// wiping a chest by turning a flag on at its end.
+        /// </remarks>
+        private static bool TestingAllowed(long sender, string what, string storeId)
+        {
+            if (Settings.ModConfig.EnableTestingCommands != null
+                && Settings.ModConfig.EnableTestingCommands.Value)
+            {
+                return true;
+            }
+
+            Plugin.Log.LogWarning(
+                $"Refused '{what}' on chest {storeId} from peer {sender}: testing commands are " +
+                "disabled here. Enable EnableTestingCommands in the Testing section of this " +
+                "machine's config if that was intended.");
+
+            return false;
         }
 
         private static List<ItemDrop.ItemData> Deserialize(byte[] bytes)

@@ -106,43 +106,48 @@ namespace BottomlessChest.Storage
         /// Stacks the payload says it holds. Compare against what actually arrived: fewer
         /// means the load was partial and the contents must not be written back.
         /// </param>
-        internal static void Load(Inventory inventory, byte[] contents, out int expected)
+        /// <returns>
+        /// False if the payload could not be read at all. The caller must treat that as a
+        /// partial load: <paramref name="expected"/> is unknowable in that case, so a bare
+        /// count comparison would see nothing loaded, nothing expected, and conclude all was
+        /// well - then write an empty chest over the stored bytes.
+        /// </returns>
+        internal static bool Load(Inventory inventory, byte[] contents, out int expected)
         {
             expected = 0;
 
             if (contents == null || contents.Length == 0)
             {
-                return;
+                return true;
             }
 
             if (!InventoryPayload.TryReadHeader(contents, out var header))
             {
                 // Not a shape we recognise. The game's loader is more likely to be right
-                // about its own format than we are.
-                LoadWithGame(inventory, contents);
-                return;
+                // about its own format than we are - but if it cannot read it either, we
+                // never learn how many stacks were in there.
+                return LoadWithGame(inventory, contents);
             }
 
             expected = header.Count;
 
             if (header.Format == PayloadFormat.Bottomless)
             {
-                LoadOurs(inventory, contents, header);
-                return;
+                return LoadOurs(inventory, contents, header);
             }
 
             if (header.Format == PayloadFormat.VanillaIntCount
                 && header.ItemVersion == LegacyVersion
                 && TryLoadLegacy(inventory, contents, header))
             {
-                return;
+                return true;
             }
 
-            LoadWithGame(inventory, contents);
+            return LoadWithGame(inventory, contents);
         }
 
         /// <summary>Reads our own framing, delegating each item to the game.</summary>
-        private static void LoadOurs(Inventory inventory, byte[] contents, PayloadHeader header)
+        private static bool LoadOurs(Inventory inventory, byte[] contents, PayloadHeader header)
         {
             // An item encoding older than the compact one has no ItemData.Load to call, so
             // put the payload back into the shape the game wrote and let it read its own.
@@ -152,7 +157,7 @@ namespace BottomlessChest.Storage
             {
                 if (InventoryPayload.TryUnwrapToVanilla(contents, out var vanilla))
                 {
-                    LoadWithGame(inventory, vanilla);
+                    return LoadWithGame(inventory, vanilla);
                 }
                 else
                 {
@@ -162,9 +167,8 @@ namespace BottomlessChest.Storage
                         "it will refuse to save, so nothing stored is overwritten.");
 
                     inventory.m_inventory.Clear();
+                    return false;
                 }
-
-                return;
             }
 
             if (ObjectDB.instance == null)
@@ -174,7 +178,7 @@ namespace BottomlessChest.Storage
                     "chest empty; it will refuse to save.");
 
                 inventory.m_inventory.Clear();
-                return;
+                return false;
             }
 
             var loaded = new List<ItemDrop.ItemData>(Math.Min(header.Count, 4096));
@@ -230,10 +234,11 @@ namespace BottomlessChest.Storage
                     "so the stored contents are untouched.");
 
                 inventory.m_inventory.Clear();
-                return;
+                return false;
             }
 
             Commit(inventory, loaded);
+            return true;
         }
 
         /// <summary>Reads format 106 by hand, which is every store written before 1.0.</summary>
@@ -328,19 +333,24 @@ namespace BottomlessChest.Storage
             return true;
         }
 
-        private static void LoadWithGame(Inventory inventory, byte[] contents)
+        /// <returns>False if even the game could not read it.</returns>
+        private static bool LoadWithGame(Inventory inventory, byte[] contents)
         {
             try
             {
                 inventory.Load(new ZPackage(contents));
+                return true;
             }
             catch (Exception ex)
             {
+                // Reporting this rather than swallowing it is what stops the caller writing
+                // an empty chest over bytes it could not read.
                 Plugin.Log.LogError(
                     $"The game could not read this chest store either: {ex.Message}. Leaving " +
                     "the chest empty; it will refuse to save.");
 
                 inventory.m_inventory.Clear();
+                return false;
             }
         }
 

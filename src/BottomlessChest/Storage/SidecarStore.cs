@@ -25,8 +25,9 @@ namespace BottomlessChest.Storage
         private const uint Magic = 0x424C4331; // "BLC1"
         private const string Extension = ".bottomless.dat";
 
-        // What vanilla passes when rotating a save and its backups. Ours sits beside the
-        // world save and rotates the same way, so it groups the same way.
+        // SaveSystem.CreateFileForWriting picks SameFolder for a world save file and
+        // SameFileEnding for everything else. Ours is not a world save file - it lives
+        // beside the world directory, not inside it - so this is the branch it falls in.
         private const CloudStorageFileGrouping SaveGrouping = CloudStorageFileGrouping.SameFileEnding;
 
         private readonly Dictionary<string, Entry> _entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
@@ -172,10 +173,9 @@ namespace BottomlessChest.Storage
             _dirty = false;
             _loadedWorld = world.m_worldName;
 
-            // Valheim 1.0 moves a world into its own directory the first time it is opened,
-            // and leaves our store behind in the parent. Both places are searched, newest
-            // layout first, and a file that will not read falls through to the next - so a
-            // half-written store cannot hide a good one behind it.
+            // Several places may hold a store: the world's own storage and the local
+            // fallback, each with the pre-1.0 location and the one a build on this branch
+            // briefly wrote into. A file that will not read falls through to the next.
             var candidates = Logic.StoreLocations.ReadCandidates(
                 WorldsFolder(world.m_fileSource),
                 WorldsFolder(FileHelpers.FileSource.Local),
@@ -183,7 +183,13 @@ namespace BottomlessChest.Storage
 
             var expected = SavePath(world, world.m_fileSource);
 
-            foreach (var candidate in candidates)
+            // Newest first, because a well-formed stale copy is the dangerous case: it
+            // parses, so it would be accepted, and the next save writes it back over the
+            // newer one. That is reachable today - ChooseSource diverts writes to local
+            // storage when the cloud quota is short, and the abandoned cloud copy still sits
+            // earlier in the list. Ordering by write time makes recency decide, and the
+            // list order settles ties so the search stays predictable.
+            foreach (var candidate in ByMostRecent(candidates, world))
             {
                 var source = candidate.FromLocalFallback
                     ? FileHelpers.FileSource.Local
@@ -214,36 +220,52 @@ namespace BottomlessChest.Storage
         }
 
         /// <summary>
-        /// Which save layout the loaded world is actually using.
+        /// Orders candidates by last write time, newest first, keeping list order for ties.
         /// </summary>
         /// <remarks>
-        /// <c>m_chunkedSave</c> is private, but <c>GetSavePaths</c> is not and branches on
-        /// it: a chunked world reports one directory, a legacy world reports its .db and
-        /// .fwl. Asking the world beats guessing from the game version, because a 1.0 client
-        /// can hold either until the world has been converted.
-        ///
-        /// Anything unexpected answers Flat, which is where the store has always gone. That
-        /// is the safe way to be wrong - the file lands in the parent directory, which the
-        /// read candidates still cover, so it is found either way.
+        /// Only files that exist are considered; the rest keep their place at the back so
+        /// the search still covers them. A storage layer that cannot report a write time
+        /// answers <c>MinValue</c>, which leaves the original order intact - degrading to
+        /// the old behaviour rather than to a random one.
         /// </remarks>
-        private static Logic.WorldLayout LayoutOf(World world)
+        private static List<Logic.StoreCandidate> ByMostRecent(
+            IReadOnlyList<Logic.StoreCandidate> candidates, World world)
         {
-            try
-            {
-                var paths = world.GetSavePaths();
+            var ordered = new List<Logic.StoreCandidate>(candidates);
 
-                return paths != null && paths.Count == 1
-                    ? Logic.WorldLayout.Chunked
-                    : Logic.WorldLayout.Flat;
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.LogWarning(
-                    $"Could not tell how world '{world.m_worldName}' is saved, assuming the " +
-                    $"pre-1.0 layout: {ex.Message}");
+            var writtenAt = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+            var position = new Dictionary<string, int>(StringComparer.Ordinal);
 
-                return Logic.WorldLayout.Flat;
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                var candidate = ordered[i];
+                var source = candidate.FromLocalFallback
+                    ? FileHelpers.FileSource.Local
+                    : world.m_fileSource;
+
+                position[candidate.Path] = i;
+
+                try
+                {
+                    writtenAt[candidate.Path] = FileHelpers.Exists(candidate.Path, source)
+                        ? FileHelpers.GetLastWriteTime(candidate.Path, source)
+                        : DateTime.MinValue;
+                }
+                catch
+                {
+                    // A store that cannot be stat'd can still be readable, so it keeps its
+                    // place rather than being dropped.
+                    writtenAt[candidate.Path] = DateTime.MinValue;
+                }
             }
+
+            ordered.Sort((left, right) =>
+            {
+                var byTime = writtenAt[right.Path].CompareTo(writtenAt[left.Path]);
+                return byTime != 0 ? byTime : position[left.Path].CompareTo(position[right.Path]);
+            });
+
+            return ordered;
         }
 
         /// <summary>
@@ -252,26 +274,19 @@ namespace BottomlessChest.Storage
         /// <remarks>
         /// 1.0 replaced <c>World.GetWorldSavePath</c> with <c>World.GetSaveDirectory</c>,
         /// which is not the same thing: it appends "/&lt;worldName&gt;/". Substituting one
-        /// for the other looks like following a rename and would move every store out from
-        /// under every existing chest, which opens empty and is then overwritten.
+        /// for the other looks like following a rename, and it is where the store must never
+        /// go - Valheim prunes unrecognised files from that directory, so a world backup or
+        /// restore would delete every chest in the world. See
+        /// <c>Logic.StoreLocations.WritePath</c>.
         ///
         /// <c>SaveSystem.GetWorldsSaveRootPath</c> returns exactly what the old method did,
-        /// so this is a faithful port and nothing moves. Teaching the store about the
-        /// per-world directory is separate work with its own migration, and is deliberately
-        /// not smuggled in here - see docs/valheim-1.0-compatibility.md.
+        /// so this is a faithful port and the store does not move.
         /// </remarks>
         private static string WorldsFolder(FileHelpers.FileSource source) =>
             SaveSystem.GetWorldsSaveRootPath(source);
 
         private static string SavePath(World world, FileHelpers.FileSource source) =>
-            Logic.StoreLocations.WritePath(WorldsFolder(source), world.m_worldName, LayoutOf(world));
-
-        /// <summary>The directory part of a store path, which is what has to exist.</summary>
-        private static string ContainingDirectory(string path)
-        {
-            var cut = path.LastIndexOf('/');
-            return cut > 0 ? path.Substring(0, cut) : path;
-        }
+            Logic.StoreLocations.WritePath(WorldsFolder(source), world.m_worldName);
 
         /// <summary>
         /// Decides where this world's store should be written.
@@ -416,11 +431,9 @@ namespace BottomlessChest.Storage
 
             try
             {
-                // For a converted world this is the world's own directory, which exists
-                // already; for a legacy one it is the worlds folder, as before. Asking for
-                // the containing directory of the path we are about to write covers both
-                // without the caller having to know which it got.
-                FileHelpers.EnsureDirectoryExists(ContainingDirectory(save));
+                // Takes the file path, not the directory: it calls Path.GetDirectoryName
+                // itself, so handing it a directory would create that directory's parent.
+                FileHelpers.EnsureDirectoryExists(save);
 
                 writer = new FileWriter(pending, SaveGrouping, FileHelpers.FileHelperType.Binary, source);
                 var binary = writer.m_binary;

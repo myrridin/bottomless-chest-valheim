@@ -12,9 +12,10 @@ from under an existing chest.
 
 ### Valheim 1.0 support
 
-- Chest stores are found whether or not 1.0 has converted your world. 1.0 gives each world
-  its own directory the first time it is opened and leaves the store behind in the parent;
-  both places are searched, and the old file is left where it is as a backup.
+- Chest stores stay exactly where they have always been, beside the world directory rather
+  than inside it. 1.0 gives each world its own directory and prunes anything it does not
+  recognise from it, so a store kept there would be deleted the first time you backed up or
+  restored that world. Several locations are searched on load, newest first.
 - Rebuilt against 1.0's storage and save APIs.
 
 ### Chests larger than 65,535 stacks

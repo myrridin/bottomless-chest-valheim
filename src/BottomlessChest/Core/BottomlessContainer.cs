@@ -369,10 +369,13 @@ namespace BottomlessChest.Core
             _container.m_inventory.RemoveAll();
             InventoryCapacity.ApplyFor(_container.m_inventory, expected);
 
-            Storage.InventorySerializer.Load(_container.m_inventory, contents, out expected);
+            // A payload that could not be read at all reports no count, so comparing counts
+            // alone would see nothing loaded, nothing expected, and call that a success -
+            // then write an empty chest over bytes we simply failed to parse.
+            var readable = Storage.InventorySerializer.Load(_container.m_inventory, contents, out expected);
 
             var actual = _container.m_inventory.m_inventory.Count;
-            _loadWasPartial = actual != expected;
+            _loadWasPartial = !readable || actual != expected;
 
             if (_loadWasPartial)
             {

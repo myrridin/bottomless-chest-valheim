@@ -2,8 +2,11 @@
 """Dumps a .bottomless.dat sidecar file so contents can be checked outside the game."""
 import struct, io, sys, glob
 
+# Recursive: a build on the 1.0 branch briefly wrote into worlds_local/<name>/ before
+# that was found to be a directory Valheim prunes. Stores there still need reading.
 paths = sys.argv[1:] or glob.glob(
-    "/mnt/c/Users/myrri/AppData/LocalLow/IronGate/Valheim/worlds_local/*.bottomless.dat*")
+    "/mnt/c/Users/myrri/AppData/LocalLow/IronGate/Valheim/worlds_local/**/*.bottomless.dat*",
+    recursive=True)
 
 for path in paths:
     data = open(path, 'rb').read()

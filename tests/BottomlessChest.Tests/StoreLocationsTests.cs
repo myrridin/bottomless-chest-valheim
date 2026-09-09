@@ -27,21 +27,33 @@ namespace BottomlessChest.Tests
             Paths(list).IndexOf(value);
 
         [Fact]
-        public void Writes_a_pre_1_0_world_exactly_where_0_1_0_wrote_it()
+        public void Writes_exactly_where_0_1_0_wrote()
         {
             // Pinned as a literal on purpose. This is the string every existing chest
             // depends on, so it should be read and checked by eye, not derived.
             Assert.Equal(
                 "/save/worlds/CasualSolo.bottomless.dat",
-                StoreLocations.WritePath(Cloud, "CasualSolo", WorldLayout.Flat));
+                StoreLocations.WritePath(Cloud, "CasualSolo"));
         }
 
+        /// <summary>
+        /// The store must never be written inside the world's own directory.
+        /// </summary>
+        /// <remarks>
+        /// Valheim prunes that directory: SaveSystem.RenameDirectory deletes every file
+        /// whose extension is not one of .fwl2 .db2 .chunks .ok .chunk, and it runs when a
+        /// player restores a world backup or makes one. All three of our generations would
+        /// go in a single call, and the world backup would not contain them either.
+        ///
+        /// This test is the guard rail on a mistake that was actually made and shipped to
+        /// this branch before review caught it.
+        /// </remarks>
         [Fact]
-        public void Writes_a_converted_world_inside_its_own_directory()
+        public void Never_writes_inside_the_directory_valheim_prunes()
         {
-            Assert.Equal(
-                "/save/worlds/CasualSolo/CasualSolo.bottomless.dat",
-                StoreLocations.WritePath(Cloud, "CasualSolo", WorldLayout.Chunked));
+            var path = StoreLocations.WritePath(Cloud, "CasualSolo");
+
+            Assert.DoesNotContain("/CasualSolo/", path);
         }
 
         [Fact]
@@ -49,8 +61,23 @@ namespace BottomlessChest.Tests
         {
             // World.GetSaveDirectory ends with "/", World.GetDBPath does not.
             Assert.Equal(
+                "/save/worlds/CasualSolo.bottomless.dat",
+                StoreLocations.WritePath("/save/worlds/", "CasualSolo"));
+        }
+
+        /// <summary>
+        /// Reading still looks inside the per-world directory, even though writing does not.
+        /// </summary>
+        /// <remarks>
+        /// A build on this branch, before the fix, wrote there. Anyone who ran it has a
+        /// store in that location, and dropping the candidate would strand it.
+        /// </remarks>
+        [Fact]
+        public void Still_reads_the_directory_an_earlier_build_wrote_into()
+        {
+            Assert.Contains(
                 "/save/worlds/CasualSolo/CasualSolo.bottomless.dat",
-                StoreLocations.WritePath("/save/worlds/", "CasualSolo", WorldLayout.Chunked));
+                Paths(StoreLocations.ReadCandidates(Cloud, Local, "CasualSolo")));
         }
 
         /// <summary>
