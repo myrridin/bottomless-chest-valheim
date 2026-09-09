@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Splatform;
 
 namespace BottomlessChest.Storage
 {
@@ -23,6 +24,10 @@ namespace BottomlessChest.Storage
         private const int FormatVersion = 1;
         private const uint Magic = 0x424C4331; // "BLC1"
         private const string Extension = ".bottomless.dat";
+
+        // What vanilla passes when rotating a save and its backups. Ours sits beside the
+        // world save and rotates the same way, so it groups the same way.
+        private const CloudStorageFileGrouping SaveGrouping = CloudStorageFileGrouping.SameFileEnding;
 
         private readonly Dictionary<string, Entry> _entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
         private string _loadedWorld;
@@ -68,7 +73,7 @@ namespace BottomlessChest.Storage
 
                 EnsureLoaded();
                 var world = ZNet.m_world;
-                return world != null && _loadedWorld == world.m_fileName;
+                return world != null && _loadedWorld == world.m_worldName;
             }
         }
 
@@ -164,14 +169,14 @@ namespace BottomlessChest.Storage
                 return;
             }
 
-            if (_loadedWorld == world.m_fileName)
+            if (_loadedWorld == world.m_worldName)
             {
                 return;
             }
 
             _entries.Clear();
             _dirty = false;
-            _loadedWorld = world.m_fileName;
+            _loadedWorld = world.m_worldName;
 
             var save = SavePath(world);
 
@@ -183,14 +188,31 @@ namespace BottomlessChest.Storage
                 && !TryRead(local, FileHelpers.FileSource.Local)
                 && !TryRead(local + ".old", FileHelpers.FileSource.Local))
             {
-                Plugin.Log.LogInfo($"No existing chest store for world '{world.m_fileName}'. Starting empty.");
+                Plugin.Log.LogInfo($"No existing chest store for world '{world.m_worldName}'. Starting empty.");
             }
         }
 
         private static string SavePath(World world) => SavePath(world, world.m_fileSource);
 
+        /// <summary>
+        /// The worlds folder itself - not the per-world directory 1.0 introduced.
+        /// </summary>
+        /// <remarks>
+        /// 1.0 replaced <c>World.GetWorldSavePath</c> with <c>World.GetSaveDirectory</c>,
+        /// which is not the same thing: it appends "/&lt;worldName&gt;/". Substituting one
+        /// for the other looks like following a rename and would move every store out from
+        /// under every existing chest, which opens empty and is then overwritten.
+        ///
+        /// <c>SaveSystem.GetWorldsSaveRootPath</c> returns exactly what the old method did,
+        /// so this is a faithful port and nothing moves. Teaching the store about the
+        /// per-world directory is separate work with its own migration, and is deliberately
+        /// not smuggled in here - see docs/valheim-1.0-compatibility.md.
+        /// </remarks>
+        private static string WorldsFolder(FileHelpers.FileSource source) =>
+            SaveSystem.GetWorldsSaveRootPath(source);
+
         private static string SavePath(World world, FileHelpers.FileSource source) =>
-            World.GetWorldSavePath(source) + "/" + world.m_fileName + Extension;
+            WorldsFolder(source) + "/" + world.m_worldName + Extension;
 
         /// <summary>
         /// Decides where this world's store should be written.
@@ -211,7 +233,7 @@ namespace BottomlessChest.Storage
         {
             var preferred = world.m_fileSource;
 
-            if (preferred != FileHelpers.FileSource.Cloud || !FileHelpers.CloudStorageEnabled)
+            if (preferred != FileHelpers.FileSource.Cloud || !FileHelpers.CloudStorageSupportedAndEnabled)
             {
                 return preferred;
             }
@@ -233,7 +255,7 @@ namespace BottomlessChest.Storage
                 return preferred;
             }
 
-            if (!FileHelpers.LocalStorageSupported)
+            if (!FileHelpers.LocalStorageFallbackSupported)
             {
                 Plugin.Log.LogError(
                     $"Chest contents need {required / 1024}KB but only {remaining / 1024}KB of cloud " +
@@ -321,7 +343,7 @@ namespace BottomlessChest.Storage
             }
 
             var world = ZNet.m_world;
-            if (world == null || _loadedWorld != world.m_fileName)
+            if (world == null || _loadedWorld != world.m_worldName)
             {
                 return;
             }
@@ -335,9 +357,9 @@ namespace BottomlessChest.Storage
 
             try
             {
-                FileHelpers.EnsureDirectoryExists(World.GetWorldSavePath(source));
+                FileHelpers.EnsureDirectoryExists(WorldsFolder(source));
 
-                writer = new FileWriter(pending, FileHelpers.FileHelperType.Binary, source);
+                writer = new FileWriter(pending, SaveGrouping, FileHelpers.FileHelperType.Binary, source);
                 var binary = writer.m_binary;
 
                 binary.Write(Magic);
@@ -365,10 +387,10 @@ namespace BottomlessChest.Storage
                         FileHelpers.Delete(older, source);
                     }
 
-                    FileHelpers.Copy(previous, source, older, source);
+                    FileHelpers.Copy(previous, source, older, SaveGrouping, source);
                 }
 
-                FileHelpers.ReplaceOldFile(save, pending, previous, source);
+                FileHelpers.ReplaceOldFile(save, pending, previous, SaveGrouping, source);
 
                 _dirty = false;
 
