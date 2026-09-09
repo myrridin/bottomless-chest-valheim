@@ -198,10 +198,31 @@ namespace BottomlessChest.Net
                         $"Take from {storeId}: {indices.Count} requested, {taken.Count} removed, " +
                         $"{session.TotalCount} left.");
 
+                    // The items are already out of the session and persisted, so an
+                    // unsendable reply loses them outright. Serialize returning null is the
+                    // "do not lose data" signal; turning it into an empty payload here would
+                    // invert it on the one path where that is fatal.
+                    var takenBytes = Serialize(taken);
+                    if (takenBytes == null)
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not send {taken.Count} taken stack(s) from chest {storeId}. " +
+                            "Putting them back rather than dropping them.");
+
+                        foreach (var item in taken)
+                        {
+                            session.Add(item);
+                        }
+
+                        ChestSessions.Persist(session);
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
                     var granted = new ZPackage();
                     granted.Write((int)ChestMessage.Granted);
                     granted.Write(storeId);
-                    granted.Write(Serialize(taken));
+                    granted.Write(takenBytes);
                     _rpc.SendPackage(sender, granted);
 
                     // Counts only, not a page: re-sending one would compact the remaining
@@ -220,7 +241,19 @@ namespace BottomlessChest.Net
                         break;
                     }
 
-                    foreach (var item in Deserialize(itemBytes))
+                    // Accepted makes the client delete its copy of the item. Sending it for
+                    // a payload we could not read destroys the item outright.
+                    if (!TryDeserialize(itemBytes, out var deposited))
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not read a deposit into chest {storeId}; refusing it so the " +
+                            "sender keeps the item.");
+
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
+                    foreach (var item in deposited)
                     {
                         session.Add(item);
                     }
@@ -424,7 +457,7 @@ namespace BottomlessChest.Net
             // apart in a big chest can land on a page sharing a position, and AddItem would
             // merge them into one. On a Granted reply that is items the server has already
             // removed and will never send again.
-            return Storage.InventorySerializer.Save(scratch, "page") ?? new byte[0];
+            return Storage.InventorySerializer.Save(scratch, "page");
         }
 
         /// <summary>
@@ -456,16 +489,24 @@ namespace BottomlessChest.Net
             return false;
         }
 
-        private static List<ItemDrop.ItemData> Deserialize(byte[] bytes)
+        private static List<ItemDrop.ItemData> Deserialize(byte[] bytes) =>
+            TryDeserialize(bytes, out var items) ? items : new List<ItemDrop.ItemData>();
+
+        /// <summary>Reads a wire payload, reporting whether it could be read at all.</summary>
+        /// <remarks>
+        /// The caller has to know. A payload that fails to load yields an empty list, which
+        /// is indistinguishable from an empty chest unless the failure is reported - and on
+        /// the deposit path that difference decides whether the sender keeps their item.
+        /// </remarks>
+        private static bool TryDeserialize(byte[] bytes, out List<ItemDrop.ItemData> items)
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, 4096);
 
-            if (bytes != null && bytes.Length > 0)
-            {
-                InventorySerializer.Load(scratch, bytes, out _);
-            }
+            var ok = bytes == null || bytes.Length == 0
+                || InventorySerializer.Load(scratch, bytes, out _);
 
-            return new List<ItemDrop.ItemData>(scratch.m_inventory);
+            items = new List<ItemDrop.ItemData>(scratch.m_inventory);
+            return ok;
         }
 
         private static IEnumerator OnClientReceive(long sender, ZPackage package)

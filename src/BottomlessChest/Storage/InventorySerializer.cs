@@ -130,11 +130,20 @@ namespace BottomlessChest.Storage
                     return false;
                 }
 
-                // It read: whatever arrived is the whole of it. Leaving expected at zero
-                // would have the caller compare 47 loaded against 0 expected, call that a
-                // partial load, and refuse to save the chest ever again.
-                expected = inventory.m_inventory.Count;
-                return true;
+                // It read something, but there is no header to say how much there should
+                // have been - and Inventory.Load drops silently once the grid is full, which
+                // it may well be, since the caller sized it from a count it could not read
+                // either. Reporting the loaded count as the expected count would call that a
+                // complete load and let the remainder be written away.
+                //
+                // So: keep whatever loaded, and refuse to save it. Leaving expected at zero
+                // is what tells the caller that, since zero can never match a non-empty load.
+                Plugin.Log.LogError(
+                    $"Chest store has a header this build does not recognise. The game read " +
+                    $"{inventory.m_inventory.Count} stack(s) from it, but there is no way to " +
+                    "know whether that is all of them, so this chest will not be saved.");
+
+                return false;
             }
 
             expected = header.Count;

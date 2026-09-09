@@ -37,6 +37,7 @@ namespace BottomlessChest.Core
             }
 
             var inventory = new Inventory("bottomless", null, ChestView.WidthForSession, 1);
+            var partial = false;
 
             if (SidecarStore.Instance.TryGet(storeId, out var contents) && contents != null && contents.Length > 0)
             {
@@ -51,20 +52,24 @@ namespace BottomlessChest.Core
                     InventoryCapacity.ApplyFor(inventory, header.Count);
                 }
 
-                if (!InventorySerializer.Load(inventory, contents, out var expected)
-                    || inventory.m_inventory.Count != expected)
-                {
-                    // Persisting this session would write what we failed to read over what
-                    // is on disk. Refusing the session leaves the stored contents alone.
-                    Plugin.Log.LogError(
-                        $"Refusing to open chest {storeId}: its store did not load completely. " +
-                        "The stored contents are untouched.");
+                var readable = InventorySerializer.Load(inventory, contents, out var expected);
+                partial = !readable || inventory.m_inventory.Count != expected;
 
-                    return null;
+                if (partial)
+                {
+                    // Open it anyway, but never write it back. Refusing to open would strand
+                    // the whole chest over one item whose prefab no longer resolves - remove
+                    // a content mod and 99,999 good stacks become unreachable with no way in.
+                    // Read-only matches what the single-player path does with _loadWasPartial.
+                    Plugin.Log.LogError(
+                        $"Chest {storeId} loaded {inventory.m_inventory.Count} of {expected} " +
+                        "stack(s). Opening it read-only: it will not be saved, so the stored " +
+                        "contents are untouched. Anything missing has an item prefab this " +
+                        "install cannot resolve.");
                 }
             }
 
-            var session = new ChestSession(storeId, inventory);
+            var session = new ChestSession(storeId, inventory) { ReadOnly = partial };
             Open[storeId] = session;
 
             Plugin.Log.LogDebug($"Opened session for chest {storeId} with {session.TotalCount} stacks.");
@@ -91,6 +96,13 @@ namespace BottomlessChest.Core
         {
             if (session == null)
             {
+                return;
+            }
+
+            if (session.ReadOnly)
+            {
+                // Loaded short, so the copy on disk is the more complete one. Writing this
+                // back would replace it with what we managed to read.
                 return;
             }
 

@@ -21,7 +21,11 @@ namespace BottomlessChest
     {
         public const string PluginGuid = "com.myrridin.bottomlesschest";
         public const string PluginName = "BottomlessChest";
-        public const string PluginVersion = "0.1.0";
+        // Jotunn's NetworkCompatibility check compares THIS string, not the manifest or
+        // assembly version, and VersionStrictness.Minor means 0.1 and 0.2 are incompatible.
+        // Leaving it behind lets a 0.1.0 client join a 0.2.0 server, which then sends it a
+        // store format it will read as garbage. Bump it with the manifest, always.
+        public const string PluginVersion = "0.2.0";
 
         internal static ManualLogSource Log { get; private set; }
 

@@ -38,6 +38,17 @@ namespace BottomlessChest.Core
 
         internal Inventory Inventory { get; }
 
+        /// <summary>
+        /// Set when the store did not load completely. The session may be read, never written.
+        /// </summary>
+        /// <remarks>
+        /// The same rule the single-player path follows: a chest that loaded short must not
+        /// be written back, because what is on disk is more complete than what is in memory.
+        /// Opening it read-only beats refusing to open it, which would strand every good
+        /// stack in the chest over one item whose prefab no longer resolves.
+        /// </remarks>
+        internal bool ReadOnly { get; set; }
+
         /// <summary>Bumped on every change, so clients can detect they acted on stale data.</summary>
         internal long Version { get; private set; }
 

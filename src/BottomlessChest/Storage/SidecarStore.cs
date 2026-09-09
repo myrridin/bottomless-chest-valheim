@@ -303,7 +303,8 @@ namespace BottomlessChest.Storage
         /// The contents are safe and listed by 'bottomless list' on the machine that holds
         /// them, which is a far better failure than a world that cannot save.
         /// </remarks>
-        private FileHelpers.FileSource ChooseSource(World world)
+        /// <returns>Where to write, or null if it must not be written at all.</returns>
+        private FileHelpers.FileSource? ChooseSource(World world)
         {
             var preferred = world.m_fileSource;
 
@@ -331,12 +332,15 @@ namespace BottomlessChest.Storage
 
             if (!FileHelpers.LocalStorageFallbackSupported)
             {
+                // This branch is newly reachable: 0.221 hardcoded CloudStorageSupported to
+                // false, so the quota check never ran. Returning the cloud source here would
+                // save anyway, doing the exact thing the message promises to avoid.
                 Plugin.Log.LogError(
                     $"Chest contents need {required / 1024}KB but only {remaining / 1024}KB of cloud " +
                     "storage remains, and local storage is unavailable. Not saving, to avoid " +
                     "exhausting the quota your world saves also use.");
 
-                return preferred;
+                return null;
             }
 
             if (!_warnedAboutCloudFallback)
@@ -423,7 +427,14 @@ namespace BottomlessChest.Storage
             }
 
             var timer = System.Diagnostics.Stopwatch.StartNew();
-            var source = ChooseSource(world);
+            var chosen = ChooseSource(world);
+            if (chosen == null)
+            {
+                // _dirty stays set, so this retries rather than quietly giving up.
+                return;
+            }
+
+            var source = chosen.Value;
             var save = SavePath(world, source);
             var pending = save + ".new";
             var previous = save + ".old";
@@ -431,9 +442,16 @@ namespace BottomlessChest.Storage
 
             try
             {
-                // Takes the file path, not the directory: it calls Path.GetDirectoryName
-                // itself, so handing it a directory would create that directory's parent.
-                FileHelpers.EnsureDirectoryExists(save);
+                // Local only. It takes a file path and derives the directory itself, so
+                // handing it a directory would create that directory's parent. For a cloud
+                // save there is no directory to make and the path is not rooted on this
+                // filesystem, so asking would create a stray folder off the drive root or
+                // throw - either way turning every flush into a failed save. FileWriter
+                // already does this for the local branch itself.
+                if (source != FileHelpers.FileSource.Cloud)
+                {
+                    FileHelpers.EnsureDirectoryExists(save);
+                }
 
                 writer = new FileWriter(pending, SaveGrouping, FileHelpers.FileHelperType.Binary, source);
 
@@ -466,6 +484,22 @@ namespace BottomlessChest.Storage
                 }
 
                 writer.Finish();
+
+                // Finish is where a cloud write actually happens, and it reports failure by
+                // setting Status rather than throwing. Rotating on a write that never landed
+                // would move the good store to ".old" and a never-written file into its
+                // place, then mark everything clean - losing the chest to a single failed
+                // chunk upload.
+                if (writer.Status != FileWriter.WriterStatus.CloseSucceeded)
+                {
+                    Plugin.Log.LogError(
+                        $"Chest store write to '{pending}' did not complete ({writer.Status}). " +
+                        "The previous file is untouched and the write will be retried.");
+
+                    writer = null;
+                    return;
+                }
+
                 writer = null;
 
                 // Keep two generations. One was very nearly not enough: a single bad save
