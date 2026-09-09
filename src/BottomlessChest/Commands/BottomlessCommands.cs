@@ -162,7 +162,20 @@ namespace BottomlessChest.Commands
                 return false;
             }
 
-            if (Console.instance != null && Console.instance.IsCheatsEnabled())
+            // Terminal.m_cheat is what "devcommands" toggles, and it is the only honest
+            // question here. IsCheatsEnabled() reads like the right one and is not:
+            //
+            //     if (m_cheat) { if (ZNet.instance) return ZNet.instance.IsServer(); ... }
+            //
+            // so on a client connected to a dedicated server it always returns false, no
+            // matter how many times you type devcommands. These commands were therefore
+            // unusable on exactly the setup they are most wanted on, and had been since
+            // before 1.0 - the same code is in 0.221.
+            //
+            // Relaxing this costs nothing: the destructive path is a server RPC, and the
+            // server checks its own EnableTestingCommands before acting. This gate only
+            // stops someone reaching them by accident on their own machine.
+            if (Terminal.m_cheat)
             {
                 return true;
             }
