@@ -222,3 +222,31 @@ none of it has run.
 
 Done and waiting: version bumped to 0.2.0, changelog written, testing commands gated behind
 config plus devcommands, `.pdb` confirmed absent from both the package and the deploys.
+
+## Review notes, 2026-09-09
+
+A read-through of the whole branch before any of it runs. This was a self-review, not an
+independent one — worth remembering when weighing it.
+
+**Checked and clean:**
+
+- The new load path sets every `ItemData` field that survives a save. The only fields
+  `ItemData.Load` leaves alone are `m_shared` and `m_dropPrefab`, which we set, plus
+  `m_lastAttackTime` and `m_lastProjectile`, which are runtime caches.
+- A missing candidate returns false without logging, so growing the search from 5 paths to
+  12 does not turn a fresh world into a wall of errors.
+- Backup rotation still behaves after the store moves: the new location simply starts
+  without generations, and the legacy file is untouched.
+
+**Worth knowing, not fixed:**
+
+- **An unknown item prefab makes a chest read-only.** Items whose prefab no longer resolves
+  are skipped, which makes the load partial, which makes the chest refuse to save — for
+  good, until the mod that added them comes back. This is pre-existing, and the direction is
+  right: the items are still on disk, and refusing preserves them. But someone who uninstalls
+  a mod gets a chest they cannot use and only a log line explaining why.
+- **Saving now allocates a third full copy.** `Inventory.Save` fills a MemoryStream,
+  `GetArray()` copies it out, and `Wrap` copies again to replace the header. For the 40MB
+  `bottomlessdev` store that is another 40MB of transient allocation per save. Avoiding it
+  means writing items ourselves rather than letting the game write them, which would trade
+  a real correctness property for memory. Not worth it unless it actually bites.
