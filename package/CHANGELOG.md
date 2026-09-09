@@ -57,6 +57,16 @@ a dedicated server on 1.0. Anyone on 0.1.0 has all three.
   server client rather than accepted and discarded. ValheimPlus smelters, kilns and
   furnaces drop their output on the ground instead of destroying it.
 
+### Known limits
+
+A chest holding a few hundred thousand stacks opens and searches quickly. Past that it stays
+correct but gets slow: ten million stacks takes fifteen to twenty seconds to open and about
+eight to search.
+
+On a dedicated server that work happens on the server, and while it runs the server is busy
+- other players will see the network indicator flicker. It recovers on its own, but a chest
+that large is worth treating as a stress test rather than a place to keep things.
+
 ### Dedicated servers
 
 Storage, paging, search, Take All and Stack All work as they did in 0.1.0.

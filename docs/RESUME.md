@@ -62,13 +62,19 @@ Timings: 100,000 stacks opens near-instantly and searches fast. Ten million take
 open and about 8s to search. Slow but usable, and the load is the place to attack if that
 ever matters — the parked `ChestIndex` work is the shape of that answer.
 
+## Verified on the shipping Jotunn 2.30.0
+
+Re-tested after installing the real release, which is a different binary from the PR build
+that everything before it was tested against: chest appears in 1.0's new build menu, opens,
+searches, take and put all correct, drop marker in the right place.
+
+Known limit, recorded in the changelog: a ten-million-stack chest stays correct but takes
+15-20s to open and about 8s to search, and on a dedicated server that work blocks the server
+long enough for other players to see the network indicator flicker. Fine at a few hundred
+thousand.
+
 ## Still to do before shipping
 
-- [ ] **Install Jotunn 2.30.0 and rebuild against it.** Manifest is already re-pinned.
-      Delete `bin`/`obj` first - r2modman preserves package timestamps, so MSBuild may
-      otherwise decide the old build is still current.
-- [ ] **Check the chest piece still appears in the build menu.** Jotunn 2.30.0 says piece
-      categories are not fully updated for 1.0, and this mod registers one.
 - [ ] One run at default log levels on the **client** (the server has been checked).
 - [ ] **Tag the release commit.** 0.1.0 shipped untagged and had to be reconstructed.
 - [ ] Re-run the upgrade diff:
