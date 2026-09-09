@@ -19,6 +19,15 @@ namespace BottomlessChest.Gui
     /// attempt searched the scrollbar's ancestors for it, never found it, and so never
     /// detached it - leaving vanilla rewriting size and value every frame while this wrote
     /// different ones, which looked like the handle flickering.
+    ///
+    /// Detaching means inheriting a job as well as dropping one. Valheim never touches
+    /// <c>InventoryGrid.m_scrollbar</c> in code - it is a bare field, wired in the prefab -
+    /// so the only thing deciding whether the bar is *shown* is the ScrollRect's own
+    /// auto-hide, which shows it exactly when the content is taller than the viewport. A
+    /// fixed window is never taller than the viewport, so the moment the window stopped
+    /// being six rows in a four-row panel, the ScrollRect hid the bar, and detaching froze
+    /// it hidden. Whoever detaches the bar owns its visibility too; that is what
+    /// <see cref="Sync"/> does now, from the virtual window rather than the grid.
     /// </remarks>
     internal sealed class ChestScrollbarBridge : MonoBehaviour
     {
@@ -36,6 +45,12 @@ namespace BottomlessChest.Gui
         private ScrollRect _detachedFrom;
         private bool _writing;
 
+        /// <summary>The bar's own visibility, to hand back exactly as it was found.</summary>
+        private bool _barWasActive;
+
+        /// <summary>Whether the ScrollRect really owned this bar before we took it.</summary>
+        private bool _hadBar;
+
         internal void Bind(InventoryGrid grid)
         {
             if (grid == null)
@@ -49,12 +64,27 @@ namespace BottomlessChest.Gui
                 return;
             }
 
+            _barWasActive = _bar.gameObject.activeSelf;
+
+            // A null verticalScrollbar is claimed as well as a matching one. It means an
+            // earlier bridge detached the bar and was destroyed without putting it back;
+            // taking ownership here is what lets this one hand it over on the way out,
+            // instead of the detach leaking for the rest of the session.
             var owner = grid.GetComponent<ScrollRect>();
-            if (owner != null && owner.verticalScrollbar == _bar)
+            if (owner != null && (owner.verticalScrollbar == _bar || owner.verticalScrollbar == null))
             {
+                // Whether it had one decides whether it gets one back. A ScrollRect that
+                // legitimately ships without a vertical scrollbar must not be handed ours on
+                // the way out - vanilla would start driving the bar every frame, which is the
+                // flickering this class exists to stop, reached from the other side.
+                _hadBar = owner.verticalScrollbar == _bar;
                 _detachedFrom = owner;
                 owner.verticalScrollbar = null;
             }
+
+            Plugin.Log.LogDebug(
+                $"Scrollbar bridge bound: bar was {(_barWasActive ? "visible" : "hidden")}, " +
+                $"ScrollRect {(_detachedFrom == null ? "not claimed" : "detached")}.");
 
             _bar.onValueChanged.AddListener(OnBarMoved);
             Sync();
@@ -83,6 +113,15 @@ namespace BottomlessChest.Gui
             var total = ChestView.TotalRows;
             var carried = ChestView.RowsOnScreen;
             var max = ChestView.MaxScroll;
+
+            // Shown exactly when there is somewhere to scroll to, which is what the
+            // ScrollRect would have decided if it still owned the bar. A chest that fits on
+            // one page gets no bar, the same as a vanilla container that fits.
+            var wanted = max > 0;
+            if (_bar.gameObject.activeSelf != wanted)
+            {
+                _bar.gameObject.SetActive(wanted);
+            }
 
             _writing = true;
 
@@ -120,11 +159,23 @@ namespace BottomlessChest.Gui
             {
                 _bar.onValueChanged.RemoveListener(OnBarMoved);
                 _bar.size = 1f;
+
+                // Handed back as found. Past this point the ScrollRect is managing it again
+                // and will correct the visibility on its next layout pass, but it must not
+                // inherit a hidden bar from a window it had nothing to do with.
+                if (_bar.gameObject.activeSelf != _barWasActive)
+                {
+                    _bar.gameObject.SetActive(_barWasActive);
+                }
             }
 
             if (_detachedFrom != null)
             {
-                _detachedFrom.verticalScrollbar = _bar;
+                if (_hadBar)
+                {
+                    _detachedFrom.verticalScrollbar = _bar;
+                }
+
                 _detachedFrom = null;
             }
         }

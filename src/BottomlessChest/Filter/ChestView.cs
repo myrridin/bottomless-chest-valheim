@@ -59,6 +59,9 @@ namespace BottomlessChest.Filter
         /// </remarks>
         private static ItemDrop.ItemData _pendingPut;
 
+        /// <summary>How much of <see cref="_pendingPut"/> was offered; 0 means all of it.</summary>
+        private static int _pendingPutAmount;
+
         private static float _pendingPutSentAt;
 
         /// <summary>
@@ -101,6 +104,51 @@ namespace BottomlessChest.Filter
 
         /// <summary>The inventory currently being displayed, for identity checks.</summary>
         internal static Inventory TargetInventory => _target;
+
+        /// <summary>
+        /// The grid slot deliberately left free as a drop target, or -1 if none is visible.
+        /// </summary>
+        /// <remarks>
+        /// A chest that filled its window edge to edge would have nowhere to drop anything,
+        /// so the slot immediately after the last drawn item is kept clear. Where that slot
+        /// is depends on how the view is being fed: a paged chest holds exactly what is on
+        /// screen, while a local one holds everything and parks the rest below the window.
+        /// Both answers are the same question, so callers should not have to know which.
+        ///
+        /// -1 when the window is full, because then there is no free slot to point at.
+        /// </remarks>
+        internal static int DropSlotIndex
+        {
+            get
+            {
+                if (_target == null)
+                {
+                    return -1;
+                }
+
+                var drawn = _remote
+                    ? _target.m_inventory.Count
+                    : Mathf.Max(0, _windowEnd - _windowStart);
+
+                // The last slot, not the one after the items. A page carries PageSlots
+                // items - one fewer than the window holds - so the bottom-right slot is
+                // always the free one, and putting the marker there means it is in the
+                // same place every time you open a chest. Following the items instead put
+                // it mid-grid whenever a page was short, which read as a gap in the
+                // results rather than a place to drop something.
+                return drawn < WindowSlots ? WindowSlots - 1 : -1;
+            }
+        }
+
+        /// <summary>Whether this inventory is the one the chest window is drawing.</summary>
+        /// <remarks>
+        /// Two different objects reach the grid depending on the mode: a paged chest draws
+        /// the page itself, while a local one draws a view built over the real inventory.
+        /// Checking only the first meant single-player never matched.
+        /// </remarks>
+        internal static bool IsDisplaying(Inventory inventory) =>
+            inventory != null
+            && (ReferenceEquals(inventory, _target) || ReferenceEquals(inventory, _view));
 
         internal static long Version => _version;
 
@@ -147,7 +195,21 @@ namespace BottomlessChest.Filter
         /// </remarks>
         internal const int Width = 8;
 
-        internal const int VisibleRows = 6;
+        /// <summary>
+        /// Rows of slots the container panel actually shows.
+        /// </summary>
+        /// <remarks>
+        /// Four on Valheim 1.0. This was 6, which is what the panel showed before 1.0
+        /// redesigned it, and nothing complained because everything derived from it stayed
+        /// self-consistent: the extra two rows were drawn off-panel, and since the scroll
+        /// step came from the same constant they simply reappeared at the top of the next
+        /// page. The only visible symptom was the drop marker sitting in a row nobody could
+        /// see.
+        ///
+        /// If the panel ever shows a different number of rows, this is the one place to
+        /// change - window size, page size and both scroll clamps are derived from it.
+        /// </remarks>
+        internal const int VisibleRows = 4;
 
         /// <summary>Grid width, exposed for server-side paging which has no view of its own.</summary>
         internal static int WidthForSession => Width;
@@ -212,6 +274,10 @@ namespace BottomlessChest.Filter
             var previous = _target;
             _remote = false;
             _awaitingPage = false;
+
+            // A search still settling when the chest closed has nothing left to ask about.
+            _queryDirtyAt = -1f;
+            _pageRequestPending = false;
             _remoteStoreId = null;
             _owner = null;
             _target = null;
@@ -235,8 +301,13 @@ namespace BottomlessChest.Filter
             {
                 _query = query ?? string.Empty;
                 _scrollRow = 0;
+
+                // Deliberately not sent here. Every keystroke used to fire its own request,
+                // each one filtering the whole chest server-side - typing "arrow" cost five
+                // full passes over a million stacks and repainted the grid five times on the
+                // way. Tick sends one once the typing stops.
+                _queryDirtyAt = Time.realtimeSinceStartup;
                 _awaitingPage = true;
-                Net.ChestRpc.RequestPage(_remoteStoreId, _query, 0);
                 return;
             }
 
@@ -302,13 +373,30 @@ namespace BottomlessChest.Filter
             _pageRequestPending = false;
             _lastPageRequestAt = now;
             _awaitingPage = true;
-            Net.ChestRpc.RequestPage(_remoteStoreId, _query, _scrollRow);
+            _newestSentRequestId = ++_requestId;
+            Net.ChestRpc.RequestPage(_remoteStoreId, _query, _scrollRow, _newestSentRequestId);
         }
 
         /// <summary>Flushes a throttled request once the interval has passed.</summary>
         internal static void Tick()
         {
-            if (_remote && _pageRequestPending)
+            if (!_remote)
+            {
+                return;
+            }
+
+            // A search is worth waiting for: the reply costs a full pass over the chest, so
+            // sending one per keystroke wastes most of them. Scrolling keeps its own much
+            // shorter throttle, because there the previous answer is still worth having.
+            if (_queryDirtyAt >= 0f && Time.realtimeSinceStartup - _queryDirtyAt >= QuerySettleDelay)
+            {
+                _queryDirtyAt = -1f;
+                _lastPageRequestAt = 0f;
+                RequestPageThrottled();
+                return;
+            }
+
+            if (_pageRequestPending)
             {
                 RequestPageThrottled();
             }
@@ -457,10 +545,23 @@ namespace BottomlessChest.Filter
         /// <summary>Accepts a window of items sent by the server.</summary>
         internal static void ApplyPage(
             string storeId, long version, int total, int matches, float weight, int scrollRow,
-            List<ItemDrop.ItemData> items)
+            int requestId, List<ItemDrop.ItemData> items)
         {
             if (!_remote || _target == null || storeId != _remoteStoreId)
             {
+                return;
+            }
+
+            // A reply older than the newest request is an answer to a question that has
+            // already been replaced. Painting it puts the wrong results on screen, and
+            // because replies can overtake each other it could be the last thing painted -
+            // so this is not just about flicker. Requests carry an id purely so this
+            // comparison is possible; nothing else uses it.
+            if (requestId != 0 && requestId < _newestSentRequestId)
+            {
+                Plugin.Log.LogDebug(
+                    $"Ignoring page for request {requestId}; {_newestSentRequestId} is current.");
+
                 return;
             }
 
@@ -537,7 +638,7 @@ namespace BottomlessChest.Filter
             }
         }
 
-        /// <summary>The server took the item we offered, so our copy can go.</summary>
+        /// <summary>The server took what we offered, so our copy of that much can go.</summary>
         internal static void ApplyAccepted()
         {
             if (_pendingPut == null)
@@ -545,8 +646,23 @@ namespace BottomlessChest.Filter
                 return;
             }
 
-            Player.m_localPlayer?.GetInventory()?.RemoveItem(_pendingPut);
+            var inventory = Player.m_localPlayer?.GetInventory();
+
+            if (_pendingPutAmount > 0 && _pendingPutAmount < _pendingPut.m_stack)
+            {
+                // Only part of the stack was offered, so only that part is gone. Vanilla has
+                // no partial RemoveItem for an ItemData in 1.0, so the count is adjusted
+                // directly and the inventory told, which is what RemoveItem would have done.
+                _pendingPut.m_stack -= _pendingPutAmount;
+                inventory?.Changed();
+            }
+            else
+            {
+                inventory?.RemoveItem(_pendingPut);
+            }
+
             _pendingPut = null;
+            _pendingPutAmount = 0;
         }
 
         /// <summary>
@@ -581,6 +697,13 @@ namespace BottomlessChest.Filter
         private static float _lastPageRequestAt;
         private static bool _pageRequestPending;
 
+        /// <summary>When the query last changed, or -1 when there is nothing to send.</summary>
+        private static float _queryDirtyAt = -1f;
+
+        /// <summary>Identifies the newest request, so older replies can be discarded.</summary>
+        private static int _requestId;
+        private static int _newestSentRequestId;
+
         /// <summary>
         /// Shortest gap between page requests while scrolling.
         /// </summary>
@@ -590,6 +713,16 @@ namespace BottomlessChest.Filter
         /// immediately; only the fetching is rationed.
         /// </remarks>
         private const float PageRequestInterval = 0.08f;
+
+        /// <summary>
+        /// How long typing has to stop before the search is sent.
+        /// </summary>
+        /// <remarks>
+        /// Long enough to swallow a burst of typing, short enough not to feel laggy. The
+        /// scroll throttle is far shorter because scrolling wants to keep up; a search wants
+        /// to wait until you have finished saying what you are looking for.
+        /// </remarks>
+        private const float QuerySettleDelay = 0.25f;
 
         /// <summary>True while a scroll has outrun the last page request.</summary>
         internal static bool PageRequestPending => _pageRequestPending;
@@ -643,11 +776,16 @@ namespace BottomlessChest.Filter
             var scratch = new Inventory("offer", null, Width, 64);
             scratch.m_inventory.AddRange(offered);
 
-            var package = new ZPackage();
-            scratch.Save(package);
+            // Wrapped so the server reads it back with a direct add - see
+            // ChestRpc.Serialize for why Inventory.AddItem is not safe for these.
+            var payload = Storage.InventorySerializer.Save(scratch, "stack-all offer");
+            if (payload == null)
+            {
+                return false;
+            }
 
             Offers[storeId] = new PendingOffer { Items = offered, SentAt = Time.realtimeSinceStartup };
-            Net.ChestRpc.StackAll(storeId, package.GetArray());
+            Net.ChestRpc.StackAll(storeId, payload);
             return true;
         }
 
@@ -699,8 +837,15 @@ namespace BottomlessChest.Filter
             return trimmed;
         }
 
-        /// <summary>Asks the server for items at the given page slots.</summary>
-        internal static void RequestTake(IReadOnlyList<int> pageSlots)
+        /// <summary>
+        /// Asks the server for items at the given page slots, whole or in part.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="amounts"/> runs alongside <paramref name="pageSlots"/>, 0 meaning
+        /// the whole stack. Take All and an ordinary click leave it null and take everything;
+        /// only a split drag fills it in.
+        /// </remarks>
+        internal static void RequestTake(IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null)
         {
             if (!_remote || pageSlots.Count == 0)
             {
@@ -713,17 +858,24 @@ namespace BottomlessChest.Filter
                 absolute.Add((_scrollRow * Width) + slot);
             }
 
-            RemoveSlotsLocally(pageSlots);
+            RemoveSlotsLocally(pageSlots, amounts);
 
             Plugin.Log.LogDebug(
                 $"Requesting {absolute.Count} item(s) from chest {_remoteStoreId} at v{_version}, " +
                 $"row {_scrollRow} (first index {(absolute.Count > 0 ? absolute[0] : -1)}).");
 
-            Net.ChestRpc.Take(_remoteStoreId, _version, absolute);
+            Net.ChestRpc.Take(_remoteStoreId, _version, absolute, amounts);
         }
 
-        /// <summary>Offers an item from the player's inventory to the chest.</summary>
-        internal static bool RequestPut(ItemDrop.ItemData item)
+        /// <summary>
+        /// Offers an item, or part of one, from the player's inventory to the chest.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="amount"/> of 0 offers the whole stack. A partial offer sends a
+        /// clone carrying only the split amount, and the player keeps the original until the
+        /// server answers - the same rule as a whole offer, applied to a smaller number.
+        /// </remarks>
+        internal static bool RequestPut(ItemDrop.ItemData item, int amount = 0)
         {
             if (!_remote || item == null)
             {
@@ -736,15 +888,35 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
-            var scratch = new Inventory("put", null, Width, 1);
-            scratch.m_inventory.Add(item);
+            var offered = StackRules.TakeAmount(amount, item.m_stack);
+            if (offered <= 0)
+            {
+                return false;
+            }
 
-            var package = new ZPackage();
-            scratch.Save(package);
+            var partial = offered < item.m_stack;
+            var sent = item;
+            if (partial)
+            {
+                sent = item.Clone();
+                sent.m_stack = offered;
+            }
+
+            var scratch = new Inventory("put", null, Width, 1);
+            scratch.m_inventory.Add(sent);
+
+            // Wrapped so the server reads it back with a direct add - see
+            // ChestRpc.Serialize for why Inventory.AddItem is not safe for these.
+            var payload = Storage.InventorySerializer.Save(scratch, "deposit");
+            if (payload == null)
+            {
+                return false;
+            }
 
             _pendingPut = item;
+            _pendingPutAmount = partial ? offered : 0;
             _pendingPutSentAt = Time.realtimeSinceStartup;
-            Net.ChestRpc.Put(_remoteStoreId, package.GetArray());
+            Net.ChestRpc.Put(_remoteStoreId, payload);
             return true;
         }
 
@@ -755,7 +927,7 @@ namespace BottomlessChest.Filter
         /// Optimistic only in appearance: the items are already committed to the server by
         /// the request that accompanies this, and the totals that follow are authoritative.
         /// </remarks>
-        private static void RemoveSlotsLocally(IReadOnlyList<int> pageSlots)
+        private static void RemoveSlotsLocally(IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null)
         {
             if (_target == null)
             {
@@ -763,12 +935,28 @@ namespace BottomlessChest.Filter
             }
 
             var doomed = new HashSet<ItemDrop.ItemData>();
-            foreach (var slot in pageSlots)
+            for (var i = 0; i < pageSlots.Count; i++)
             {
-                if (slot >= 0 && slot < _target.m_inventory.Count)
+                var slot = pageSlots[i];
+                if (slot < 0 || slot >= _target.m_inventory.Count)
                 {
-                    doomed.Add(_target.m_inventory[slot]);
+                    continue;
                 }
+
+                var item = _target.m_inventory[slot];
+                var requested = amounts != null && i < amounts.Count ? amounts[i] : 0;
+                var amount = StackRules.TakeAmount(requested, item.m_stack);
+
+                if (amount >= item.m_stack)
+                {
+                    doomed.Add(item);
+                    continue;
+                }
+
+                // A partial take leaves a remainder, and blanking the slot would hide it
+                // until the next page arrived. The server splits the same way, so the two
+                // agree without another round trip.
+                item.m_stack -= amount;
             }
 
             _target.m_inventory.RemoveAll(item => doomed.Contains(item));

@@ -38,6 +38,17 @@ namespace BottomlessChest.Core
 
         internal Inventory Inventory { get; }
 
+        /// <summary>
+        /// Set when the store did not load completely. The session may be read, never written.
+        /// </summary>
+        /// <remarks>
+        /// The same rule the single-player path follows: a chest that loaded short must not
+        /// be written back, because what is on disk is more complete than what is in memory.
+        /// Opening it read-only beats refusing to open it, which would strand every good
+        /// stack in the chest over one item whose prefab no longer resolves.
+        /// </remarks>
+        internal bool ReadOnly { get; set; }
+
         /// <summary>Bumped on every change, so clients can detect they acted on stale data.</summary>
         internal long Version { get; private set; }
 
@@ -123,24 +134,60 @@ namespace BottomlessChest.Core
             return page;
         }
 
-        /// <summary>Removes items named by their position in the current match order.</summary>
-        internal List<ItemDrop.ItemData> Take(IEnumerable<int> indices)
+        /// <summary>
+        /// Removes items named by their position in the current match order, in whole or in
+        /// part.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="amounts"/> runs alongside <paramref name="indices"/>; 0 means the
+        /// whole stack, which is what every caller that does not split sends. The amount is
+        /// measured against this session's own stack, never the client's, so a request built
+        /// from a stale page takes what is actually there instead of going negative.
+        ///
+        /// A partial take leaves the original item in place and hands back a clone carrying
+        /// the split-off amount. Leaving it in place matters: the order is by name, so
+        /// removing and re-adding would move the remainder to a different slot and the page
+        /// under the player's cursor would jump.
+        /// </remarks>
+        internal List<ItemDrop.ItemData> Take(IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null)
         {
             EnsureOrder();
 
             var taken = new List<ItemDrop.ItemData>();
-            foreach (var index in indices)
+            for (var i = 0; i < indices.Count; i++)
             {
+                var index = indices[i];
                 if (index < 0 || index >= _ordered.Count)
                 {
                     continue;
                 }
 
                 var item = _ordered[index];
-                if (Inventory.m_inventory.Remove(item))
+                var requested = amounts != null && i < amounts.Count ? amounts[i] : 0;
+                var amount = StackRules.TakeAmount(requested, item.m_stack);
+                if (amount <= 0)
                 {
-                    taken.Add(item);
+                    continue;
                 }
+
+                if (amount >= item.m_stack)
+                {
+                    if (Inventory.m_inventory.Remove(item))
+                    {
+                        taken.Add(item);
+                        Forget(item);
+                    }
+
+                    continue;
+                }
+
+                var part = item.Clone();
+                part.m_stack = amount;
+                item.m_stack -= amount;
+                taken.Add(part);
+
+                // It has room now, so it is where the next deposit of its kind should go.
+                Reopen(item);
             }
 
             if (taken.Count > 0)
@@ -151,6 +198,142 @@ namespace BottomlessChest.Core
             return taken;
         }
 
+        /// <summary>
+        /// Stacks with room left, one per kind of item.
+        /// </summary>
+        /// <remarks>
+        /// This is what makes consolidation affordable in a chest of any size. Once the
+        /// contents are collapsed there is at most one part-filled stack of each kind - every
+        /// other stack is full, by definition - so this dictionary is the size of the item
+        /// catalogue, not the size of the chest. A deposit is then a lookup rather than a
+        /// walk, and stays a lookup at ten million stacks.
+        /// </remarks>
+        private readonly Dictionary<string, ItemDrop.ItemData> _openStacks =
+            new Dictionary<string, ItemDrop.ItemData>(System.StringComparer.Ordinal);
+
+        private bool _consolidated;
+
+        /// <summary>What has to match for two stacks to be one stack.</summary>
+        internal static string StackKey(ItemDrop.ItemData item) => StackConsolidation.StackKey(item);
+
+        /// <summary>
+        /// Collapses every stack that can be collapsed, once, and indexes what is left open.
+        /// </summary>
+        /// <remarks>
+        /// Runs when the session opens, before any page has been sent, and never again -
+        /// after this, <see cref="Deposit"/> keeps the contents collapsed as they arrive.
+        /// Doing it here rather than lazily matters: it renumbers the contents, and a client
+        /// holding a page numbered the old way would take the wrong items. Opening is the one
+        /// moment when no page exists yet.
+        /// </remarks>
+        /// <returns>True if anything actually moved, so the caller knows to write.</returns>
+        internal bool Consolidate()
+        {
+            if (_consolidated)
+            {
+                return false;
+            }
+
+            _consolidated = true;
+
+            if (!StackConsolidation.Collapse(Inventory, out var collapsed, _openStacks))
+            {
+                // Contents in memory can no longer be trusted, so this session stops writing
+                // and the store keeps what it already had.
+                ReadOnly = true;
+                return false;
+            }
+
+            if (collapsed <= 0)
+            {
+                return false;
+            }
+
+            Touch();
+            Plugin.Log.LogInfo(
+                $"Consolidated chest {StoreId}: {collapsed} part-stack(s) merged away, " +
+                $"{Inventory.m_inventory.Count} left.");
+
+            return true;
+        }
+
+        /// <summary>Discards everything, index included.</summary>
+        /// <remarks>
+        /// Emptying by reaching into <c>Inventory.m_inventory</c> leaves the open-stack index
+        /// pointing at stacks that are no longer in the chest, and the next deposit merges
+        /// into one of those ghosts - the items land nowhere and the client is told they
+        /// arrived. Anything that empties a chest has to come through here.
+        /// </remarks>
+        internal void Clear()
+        {
+            Inventory.m_inventory.Clear();
+            _openStacks.Clear();
+
+            // Vacuously true, and it keeps a later Consolidate from walking an empty list.
+            _consolidated = true;
+            Touch();
+        }
+
+        /// <summary>
+        /// Adds an item, collapsing it into stacks that have room before making a new one.
+        /// </summary>
+        /// <remarks>
+        /// The counterpart to <see cref="Consolidate"/>: that one collapses what is already
+        /// there, this one keeps it collapsed. Both directions matter, because a chest that
+        /// is tidied once and then fragmented again by every deposit is not tidy.
+        /// </remarks>
+        internal void Deposit(ItemDrop.ItemData item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            var max = item.m_shared.m_maxStackSize;
+            if (max <= 1)
+            {
+                Add(item);
+                return;
+            }
+
+            var key = StackKey(item);
+
+            if (_openStacks.TryGetValue(key, out var open) && !ReferenceEquals(open, item))
+            {
+                var moved = StackRules.MergeAmount(item.m_stack, open.m_stack, max);
+                open.m_stack += moved;
+                item.m_stack -= moved;
+
+                if (open.m_stack >= max)
+                {
+                    _openStacks.Remove(key);
+                }
+
+                if (item.m_stack <= 0)
+                {
+                    Touch();
+                    return;
+                }
+            }
+
+            Inventory.m_inventory.Add(item);
+            if (item.m_stack < max)
+            {
+                _openStacks[key] = item;
+            }
+
+            Touch();
+        }
+
+        /// <summary>
+        /// Adds an item as its own stack, merging nothing.
+        /// </summary>
+        /// <remarks>
+        /// The restore path uses this: when a reply cannot be sent, the items already removed
+        /// go back exactly as they were rather than being folded into something else.
+        /// Consolidation is given up rather than guessed at, so the index is dropped and
+        /// rebuilt the next time the chest is opened.
+        /// </remarks>
         internal void Add(ItemDrop.ItemData item)
         {
             if (item == null)
@@ -159,7 +342,45 @@ namespace BottomlessChest.Core
             }
 
             Inventory.m_inventory.Add(item);
+            _openStacks.Clear();
+            _consolidated = false;
             Touch();
+        }
+
+        /// <summary>Drops a stack from the open-stack index if it was the one held there.</summary>
+        private void Forget(ItemDrop.ItemData item)
+        {
+            var key = StackKey(item);
+            if (_openStacks.TryGetValue(key, out var open) && ReferenceEquals(open, item))
+            {
+                _openStacks.Remove(key);
+            }
+        }
+
+        /// <summary>
+        /// Records a stack that now has room, so the next deposit of its kind finds it.
+        /// </summary>
+        /// <remarks>
+        /// Indexes only; it deliberately does not merge. This runs from inside
+        /// <see cref="Take"/>, which is working through indices into a list it has already
+        /// fixed, and merging would move contents that a later index in the same request
+        /// still refers to. Taking part of a stack is meant to leave a remainder, so nothing
+        /// here is untidy; the rare case of a second part-stack of one kind is collapsed the
+        /// next time the chest is opened.
+        /// </remarks>
+        private void Reopen(ItemDrop.ItemData item)
+        {
+            var max = item.m_shared.m_maxStackSize;
+            if (max <= 1 || item.m_stack >= max)
+            {
+                return;
+            }
+
+            var key = StackKey(item);
+            if (!_openStacks.ContainsKey(key))
+            {
+                _openStacks[key] = item;
+            }
         }
 
         /// <summary>Applies the query and sort once per change, not once per request.</summary>

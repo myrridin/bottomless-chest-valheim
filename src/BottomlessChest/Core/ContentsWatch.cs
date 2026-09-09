@@ -1,6 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
-using BepInEx.Logging;
 using BottomlessChest.Logic;
 using UnityEngine;
 
@@ -36,8 +34,6 @@ namespace BottomlessChest.Core
         /// </summary>
         private const int MaxWatchedStacks = 5000;
 
-        private static bool? _debugLogging;
-
         private Dictionary<string, int> _last;
         private float _nextPollAt;
         private bool _saidItWasTooBig;
@@ -50,30 +46,7 @@ namespace BottomlessChest.Core
         /// The default install logs at Info and above, so this is false and the whole watch
         /// costs one comparison per frame. Turning Debug on in BepInEx.cfg is what arms it.
         /// </remarks>
-        internal static bool Enabled
-        {
-            get
-            {
-                if (_debugLogging.HasValue)
-                {
-                    return _debugLogging.Value;
-                }
-
-                try
-                {
-                    _debugLogging = BepInEx.Logging.Logger.Listeners
-                        .OfType<DiskLogListener>()
-                        .Any(listener => (listener.DisplayedLogLevel & LogLevel.Debug) != 0);
-                }
-                catch
-                {
-                    // Never let a diagnostic decide whether the mod works.
-                    _debugLogging = false;
-                }
-
-                return _debugLogging.Value;
-            }
-        }
+        internal static bool Enabled => DebugLogging.Enabled;
 
         /// <summary>
         /// Re-baselines without reporting, for when contents are replaced wholesale.

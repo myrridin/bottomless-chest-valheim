@@ -18,7 +18,7 @@ namespace BottomlessChest.Commands
 
         public override string Help =>
             "bottomless list | here | rebind <storeId> | fill <stacks> [prefab] | empty  " +
-            "(fill and empty need devcommands)";
+            "(fill and empty are off by default; see the Testing section of the config)";
 
         public override void Run(string[] args)
         {
@@ -137,16 +137,45 @@ namespace BottomlessChest.Commands
         /// get bulk test data into a chest in the setup we actually develop against.
         /// </remarks>
         /// <summary>
-        /// Gates the development commands behind cheats.
+        /// Gates the development commands behind a config switch and cheats, both.
         /// </summary>
         /// <remarks>
         /// Filling a chest with a hundred thousand items is a testing tool, not a feature.
-        /// Vanilla puts spawn behind devcommands for the same reason, so this follows the
-        /// convention players already know rather than inventing a setting.
+        /// Devcommands alone is the convention players already know, but it is also a thing
+        /// people turn on for an evening and forget about, and these two commands are
+        /// destructive in a way spawning an item is not - "empty" discards a chest's
+        /// contents outright.
+        ///
+        /// So the config switch is the real gate and devcommands is the second one. Off by
+        /// default means a normal install cannot reach them at all, however the console is
+        /// left.
         /// </remarks>
         private static bool RequireCheats()
         {
-            if (Console.instance != null && Console.instance.IsCheatsEnabled())
+            if (Settings.ModConfig.EnableTestingCommands == null
+                || !Settings.ModConfig.EnableTestingCommands.Value)
+            {
+                Console.instance?.Print(
+                    "This is a testing command, disabled by default. Set EnableTestingCommands " +
+                    "in the Testing section of the config to turn it on.");
+
+                return false;
+            }
+
+            // Terminal.m_cheat is what "devcommands" toggles, and it is the only honest
+            // question here. IsCheatsEnabled() reads like the right one and is not:
+            //
+            //     if (m_cheat) { if (ZNet.instance) return ZNet.instance.IsServer(); ... }
+            //
+            // so on a client connected to a dedicated server it always returns false, no
+            // matter how many times you type devcommands. These commands were therefore
+            // unusable on exactly the setup they are most wanted on, and had been since
+            // before 1.0 - the same code is in 0.221.
+            //
+            // Relaxing this costs nothing: the destructive path is a server RPC, and the
+            // server checks its own EnableTestingCommands before acting. This gate only
+            // stops someone reaching them by accident on their own machine.
+            if (Terminal.m_cheat)
             {
                 return true;
             }

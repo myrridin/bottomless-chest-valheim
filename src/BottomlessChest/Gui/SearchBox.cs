@@ -18,6 +18,14 @@ namespace BottomlessChest.Gui
         /// <summary>Gap between the search box and the count line beneath it.</summary>
         private const float StatusGap = 26f;
 
+        /// <summary>Width of the count line, matching the search box above it.</summary>
+        private const float StatusWidth = 280f;
+
+        // Fitting is measured, which forces a layout pass, so the result is cached against
+        // the text that produced it - UpdateStatus runs every frame the window is open.
+        private static string _lastStatusRaw;
+        private static string _lastStatusFitted;
+
         private static GameObject _field;
         private static GameObject _hiddenTitle;
 
@@ -37,7 +45,7 @@ namespace BottomlessChest.Gui
         private static bool _hideCancelled;
 
         internal static void NoteEscapePressed() => _escapeFrame = Time.frameCount;
-        private static InputField _input;
+        private static SearchField _input;
         private static Text _status;
 
         [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Show))]
@@ -95,16 +103,34 @@ namespace BottomlessChest.Gui
                 var anchorSource = title != null ? title.rectTransform : null;
                 var parent = anchorSource != null ? anchorSource.parent : gui.m_container.transform;
 
-                _field = GUIManager.Instance.CreateInputField(
-                    parent: parent,
-                    anchorMin: new Vector2(0.5f, 1f),
-                    anchorMax: new Vector2(0.5f, 1f),
-                    position: new Vector2(0f, 44f),
-                    contentType: InputField.ContentType.Standard,
-                    placeholderText: "$bottomless_search",
-                    fontSize: 16,
-                    width: 280f,
-                    height: 30f);
+                // Prefer the game's own search field, which raises focus events and knows
+                // about on-screen keyboards and gamepads. The legacy one is the fallback.
+                _input = SearchField.TryCloneVanilla(parent);
+
+                if (_input == null)
+                {
+                    var legacy = GUIManager.Instance.CreateInputField(
+                        parent: parent,
+                        anchorMin: new Vector2(0.5f, 1f),
+                        anchorMax: new Vector2(0.5f, 1f),
+                        position: new Vector2(0f, 44f),
+                        contentType: InputField.ContentType.Standard,
+                        placeholderText: "$bottomless_search",
+                        fontSize: 16,
+                        width: 280f,
+                        height: 30f);
+
+                    _input = SearchField.FromLegacy(legacy);
+                }
+
+                if (_input == null)
+                {
+                    Plugin.Log.LogError("Search field could not be created; the chest opens without one.");
+                    DestroyWidgets();
+                    return;
+                }
+
+                _field = _input.GameObject;
 
                 if (anchorSource != null)
                 {
@@ -121,16 +147,10 @@ namespace BottomlessChest.Gui
                     _hiddenTitle.SetActive(false);
                 }
 
-                _input = _field.GetComponent<InputField>() ?? _field.GetComponentInChildren<InputField>();
-                if (_input == null)
-                {
-                    Plugin.Log.LogError("Search field was created but carries no InputField.");
-                    DestroyWidgets();
-                    return;
-                }
-
-                _input.onValueChanged.AddListener(OnChanged);
-                _field.AddComponent<SearchFocusGuard>().TakeFocus();
+                _input.OnChanged(OnChanged);
+                var guard = _field.AddComponent<SearchFocusGuard>();
+                guard.Bind(_input);
+                guard.TakeFocus();
                 _field.AddComponent<ChestScroller>();
                 _field.AddComponent<ChestScrollbarBridge>().Bind(gui.m_containerGrid);
 
@@ -153,9 +173,14 @@ namespace BottomlessChest.Gui
                     color: GUIManager.Instance.ValheimOrange,
                     outline: true,
                     outlineColor: Color.black,
-                    width: 280f,
+                    width: StatusWidth,
                     height: 20f,
                     addContentSizeFitter: false).GetComponent<Text>();
+
+                // Overflow rather than wrap so a long line stays one line; Ellipsize below
+                // is what keeps it inside the box.
+                _status.horizontalOverflow = HorizontalWrapMode.Overflow;
+                _status.verticalOverflow = VerticalWrapMode.Truncate;
 
                 var fieldRect = _field.GetComponent<RectTransform>();
                 var statusRect = _status.rectTransform;
@@ -163,6 +188,7 @@ namespace BottomlessChest.Gui
                 statusRect.anchorMax = fieldRect.anchorMax;
                 statusRect.pivot = fieldRect.pivot;
                 statusRect.anchoredPosition = fieldRect.anchoredPosition - new Vector2(0f, StatusGap);
+                statusRect.sizeDelta = new Vector2(StatusWidth, 20f);
 
                 UpdateStatus();
             }
@@ -198,7 +224,7 @@ namespace BottomlessChest.Gui
         /// </remarks>
         internal static bool TryConsumeEscape()
         {
-            if (_input == null || string.IsNullOrEmpty(_input.text))
+            if (_input == null || string.IsNullOrEmpty(_input.Text))
             {
                 return false;
             }
@@ -213,12 +239,11 @@ namespace BottomlessChest.Gui
 
             _escapeFrame = -1000;
 
-            _input.text = string.Empty;
+            _input.Text = string.Empty;
 
             // Unity deactivated the field when it saw Escape; take focus straight back so
             // the next keystroke still goes to the search.
-            _input.ActivateInputField();
-            _input.Select();
+            _input.Focus();
 
             return true;
         }
@@ -268,9 +293,53 @@ namespace BottomlessChest.Gui
             var rows = ChestView.TotalRows;
             var visible = ChestView.VisibleRows;
 
-            _status.text = rows > visible
+            _status.text = Ellipsize(rows > visible
                 ? $"{shown}   -   rows {ChestView.ScrollRow + 1}-{Mathf.Min(ChestView.ScrollRow + visible, rows)} of {rows}"
-                : shown;
+                : shown);
+        }
+
+        /// <summary>
+        /// Trims to the width of the box, ending in an ellipsis rather than mid-character.
+        /// </summary>
+        /// <remarks>
+        /// Legacy Text has no ellipsis mode: it clips, which leaves a half-drawn digit and
+        /// no sign that anything is missing. Measuring is a layout pass, so the answer is
+        /// cached and the search is a bisection rather than one character at a time.
+        /// </remarks>
+        private static string Ellipsize(string raw)
+        {
+            if (raw == _lastStatusRaw)
+            {
+                return _lastStatusFitted;
+            }
+
+            _lastStatusRaw = raw;
+            _status.text = raw;
+
+            if (_status.preferredWidth <= StatusWidth)
+            {
+                return _lastStatusFitted = raw;
+            }
+
+            var low = 0;
+            var high = raw.Length;
+
+            while (low < high)
+            {
+                var mid = (low + high + 1) / 2;
+                _status.text = raw.Substring(0, mid) + "...";
+
+                if (_status.preferredWidth <= StatusWidth)
+                {
+                    low = mid;
+                }
+                else
+                {
+                    high = mid - 1;
+                }
+            }
+
+            return _lastStatusFitted = raw.Substring(0, low).TrimEnd() + "...";
         }
 
         private static void Teardown()

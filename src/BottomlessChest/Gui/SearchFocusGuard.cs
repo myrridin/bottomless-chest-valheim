@@ -23,15 +23,36 @@ namespace BottomlessChest.Gui
     [DefaultExecutionOrder(-1000)]
     internal sealed class SearchFocusGuard : MonoBehaviour
     {
-        private InputField _input;
+        private SearchField _input;
         private bool _blocking;
         private int _focusAttemptsLeft;
         private bool _wasFocused;
+        private bool _focusedByEvent;
 
-        private void Awake()
+        /// <summary>
+        /// Binds the guard to its field, subscribing to focus events where they exist.
+        /// </summary>
+        /// <remarks>
+        /// Valheim 1.0's GuiInputField is a TMP_InputField and raises onSelect/onDeselect,
+        /// so focus is observed rather than polled. The legacy field raises nothing, and
+        /// still has to be watched frame by frame - which is what this class did for every
+        /// field before 1.0.
+        /// </remarks>
+        internal void Bind(SearchField field)
         {
-            _input = GetComponent<InputField>();
+            _input = field;
+
+            if (!field.ReportsFocusChanges)
+            {
+                return;
+            }
+
+            field.OnFocusChanged(
+                gained: () => _focusedByEvent = true,
+                lost: () => _focusedByEvent = false);
         }
+
+        private bool Focused => _input != null && (_input.ReportsFocusChanges ? _focusedByEvent : _input.IsFocused);
 
         /// <summary>
         /// Asks for keyboard focus, retrying for a few frames.
@@ -90,10 +111,9 @@ namespace BottomlessChest.Gui
                 {
                     // Do not take focus mid-gesture.
                 }
-                else if (!_input.isFocused)
+                else if (!Focused)
                 {
-                    _input.Select();
-                    _input.ActivateInputField();
+                    _input.Focus();
                 }
                 else
                 {
@@ -109,21 +129,21 @@ namespace BottomlessChest.Gui
                 SearchBox.NoteEscapePressed();
             }
 
-            if ((_input.isFocused || _wasFocused) && Input.GetKeyDown(KeyCode.Escape))
+            if ((Focused || _wasFocused) && Input.GetKeyDown(KeyCode.Escape))
             {
                 _wasFocused = false;
                 HandleEscape();
                 return;
             }
 
-            _wasFocused = _input.isFocused;
+            _wasFocused = Focused;
 
-            if (_input.isFocused == _blocking)
+            if (Focused == _blocking)
             {
                 return;
             }
 
-            _blocking = _input.isFocused;
+            _blocking = Focused;
             GUIManager.BlockInput(_blocking);
             Plugin.Log.LogDebug($"Search box focus: {_blocking}");
         }
@@ -138,9 +158,9 @@ namespace BottomlessChest.Gui
         /// </remarks>
         private void HandleEscape()
         {
-            if (!string.IsNullOrEmpty(_input.text))
+            if (!string.IsNullOrEmpty(_input.Text))
             {
-                _input.text = string.Empty;
+                _input.Text = string.Empty;
                 return;
             }
 

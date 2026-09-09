@@ -1,24 +1,66 @@
 using BottomlessChest.Filter;
 using HarmonyLib;
+using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace BottomlessChest.Gui
 {
     /// <summary>
-    /// Marks the reserved slot at the end of a page so it reads as a drop target.
+    /// Marks the slot kept free at the end of the window so it reads as a drop target.
     /// </summary>
     /// <remarks>
-    /// A paged chest always keeps its final slot free, otherwise there would be nowhere to
-    /// drop anything into a full chest. Left unmarked that gap looks like an accident, so
-    /// it is tinted to say it is deliberate.
+    /// A bottomless chest always keeps its last visible slot free, otherwise there would be
+    /// nowhere to drop anything into a chest whose window is full. Unmarked, that gap looks
+    /// like an accident rather than an invitation.
     ///
-    /// Works on the grid's child objects rather than InventoryGrid.Element, which is a
-    /// private nested type. Children are created row-major, so the child index is the slot.
+    /// Valheim 1.0 gave every slot a <c>m_dropFocus</c> overlay for exactly this idea, and
+    /// then only drives it on touch devices:
+    ///
+    ///     if (ZInput.IsTouchActive())
+    ///         element.m_dropFocus.color = (!element.m_used || element.m_canBeDroppedOn) ? ... ;
+    ///
+    /// On mouse and keyboard it is set to <c>Color.clear</c> in Awake and never touched
+    /// again. So it is an unused overlay, already positioned over the slot and already the
+    /// shape players associate with "you can drop here" - which makes it the right thing to
+    /// borrow, and means nothing fights us for it.
+    ///
+    /// Its designed colour is cached as <c>DropFocusOriginalColor</c> before Awake blanks
+    /// it, so using that keeps the marker looking like part of the game rather than like a
+    /// mod tinting a square.
+    ///
+    /// This replaces tinting the element's background image, which had to guess at the
+    /// slot's own colour to restore it, and only ever ran for paged chests.
     /// </remarks>
     internal static class DropSlotHighlight
     {
-        private static readonly Color DropTint = new Color(0.65f, 0.85f, 0.55f, 0.55f);
+        /// <summary>Used only if the prefab's own drop colour is fully transparent.</summary>
+        private static readonly Color Fallback = new Color(0.65f, 0.85f, 0.55f, 0.55f);
+
+        /// <summary>
+        /// Drawn in the slot so it says what it is, not merely that it is special.
+        /// </summary>
+        /// <remarks>
+        /// A glow alone tells you a slot is different; it does not tell you it wants
+        /// something put in it. This borrows the stack-count label, which is idle on an
+        /// empty slot, rather than adding an object to a grid the game pools and reuses.
+        /// </remarks>
+        private const string DropGlyph = "+";
+
+        /// <summary>How much bigger than a stack count the glyph is drawn.</summary>
+        private const float GlyphScale = 3f;
+
+        /// <summary>Faded, so it reads as an invitation rather than as content.</summary>
+        private static readonly Color GlyphColour = new Color(1f, 1f, 1f, 0.45f);
+
+        private static TextAlignmentOptions _defaultAlignment;
+        private static float _defaultFontSize;
+        private static Color _defaultColour;
+        private static bool _defaultAutoSize;
+        private static Vector2 _defaultAnchorMin;
+        private static Vector2 _defaultAnchorMax;
+        private static Vector2 _defaultOffsetMin;
+        private static Vector2 _defaultOffsetMax;
+        private static bool _defaultsCaptured;
 
         [HarmonyPatch(typeof(InventoryGrid), "UpdateGui")]
         private static class Patch
@@ -26,29 +68,102 @@ namespace BottomlessChest.Gui
             private static void Postfix(InventoryGrid __instance)
             {
                 var root = __instance.m_gridRoot;
-                if (root == null)
+                if (root == null || Plugin.Degraded)
                 {
                     return;
                 }
 
-                var isPagedChest = ChestView.IsRemote
-                                   && ReferenceEquals(__instance.m_inventory, ChestView.TargetInventory);
+                // On touch the game drives this overlay itself, and its answer - every empty
+                // slot glows while dragging - is a better one than ours. Leave it alone.
+                if (ZInput.IsTouchActive())
+                {
+                    return;
+                }
 
-                // The reserved slot sits immediately after the items the page carries.
-                var dropSlot = isPagedChest ? __instance.m_inventory.m_inventory.Count : -1;
+                var dropSlot = ChestView.IsDisplaying(__instance.m_inventory)
+                    ? ChestView.DropSlotIndex
+                    : -1;
 
                 for (var i = 0; i < root.childCount; i++)
                 {
-                    var image = root.GetChild(i).GetComponent<Image>();
-                    if (image == null)
+                    var element = root.GetChild(i).GetComponent<InventoryElement>();
+                    if (element == null || element.m_dropFocus == null)
                     {
                         continue;
                     }
 
-                    // Always written, not just when tinting: these elements are reused for
-                    // ordinary containers too, and a stale tint would follow them there.
-                    image.color = i == dropSlot ? DropTint : Color.white;
+                    // Cleared as well as set: these elements are pooled and reused for
+                    // ordinary containers, and a marker left behind would follow them there.
+                    var isDropSlot = i == dropSlot;
+                    element.m_dropFocus.color = isDropSlot ? DropColour(element) : Color.clear;
+
+                    ApplyGlyph(element, isDropSlot);
                 }
+            }
+
+            private static Color DropColour(InventoryElement element)
+            {
+                var designed = element.DropFocusOriginalColor;
+                return designed.a > 0f ? designed : Fallback;
+            }
+
+            /// <summary>Marks or unmarks the slot's idle stack-count label.</summary>
+            private static void ApplyGlyph(InventoryElement element, bool isDropSlot)
+            {
+                var label = element.m_amount;
+                if (label == null)
+                {
+                    return;
+                }
+
+                var rect = label.rectTransform;
+
+                if (!_defaultsCaptured)
+                {
+                    // Every slot comes from one prefab, so one sample is the default for
+                    // all of them - and it has to be taken before we overwrite anything.
+                    _defaultAlignment = label.alignment;
+                    _defaultFontSize = label.fontSize;
+                    _defaultColour = label.color;
+                    _defaultAutoSize = label.enableAutoSizing;
+                    _defaultAnchorMin = rect.anchorMin;
+                    _defaultAnchorMax = rect.anchorMax;
+                    _defaultOffsetMin = rect.offsetMin;
+                    _defaultOffsetMax = rect.offsetMax;
+                    _defaultsCaptured = true;
+                }
+
+                if (isDropSlot)
+                {
+                    // A stack count lives in a corner of the slot, so centring the text
+                    // inside its own box would still leave it in that corner. Stretching
+                    // the box over the whole slot is what puts the glyph in the middle.
+                    rect.anchorMin = Vector2.zero;
+                    rect.anchorMax = Vector2.one;
+                    rect.offsetMin = Vector2.zero;
+                    rect.offsetMax = Vector2.zero;
+
+                    // Auto-sizing would shrink the glyph back to counting-numbers size.
+                    label.enableAutoSizing = false;
+                    label.alignment = TextAlignmentOptions.Center;
+                    label.fontSize = _defaultFontSize * GlyphScale;
+                    label.color = GlyphColour;
+                    label.text = DropGlyph;
+                    label.enabled = true;
+                    return;
+                }
+
+                // Restored unconditionally. The game decides whether an occupied slot shows
+                // its count, but it never touches any of this, so anything we changed would
+                // follow the element to whatever it is reused for next.
+                rect.anchorMin = _defaultAnchorMin;
+                rect.anchorMax = _defaultAnchorMax;
+                rect.offsetMin = _defaultOffsetMin;
+                rect.offsetMax = _defaultOffsetMax;
+                label.enableAutoSizing = _defaultAutoSize;
+                label.alignment = _defaultAlignment;
+                label.fontSize = _defaultFontSize;
+                label.color = _defaultColour;
             }
         }
     }

@@ -37,17 +37,51 @@ namespace BottomlessChest.Core
             }
 
             var inventory = new Inventory("bottomless", null, ChestView.WidthForSession, 1);
+            var partial = false;
 
             if (SidecarStore.Instance.TryGet(storeId, out var contents) && contents != null && contents.Length > 0)
             {
-                if (!FastInventoryReader.TryLoad(inventory, contents, out _))
+                // Size the grid before loading. A payload that routes to the game's own
+                // loader goes through Inventory.AddItem, which silently refuses everything
+                // past m_width * m_height - eight slots, as constructed. The chest would
+                // then load short, fail the count check below, and never open again.
+                // BottomlessContainer.LoadIntoInventory has always done this; the session
+                // path did not.
+                if (Logic.InventoryPayload.TryReadHeader(contents, out var header))
                 {
-                    inventory.Load(new ZPackage(contents));
+                    InventoryCapacity.ApplyFor(inventory, header.Count);
+                }
+
+                var readable = InventorySerializer.Load(inventory, contents, out var expected);
+                partial = !readable || inventory.m_inventory.Count != expected;
+
+                if (partial)
+                {
+                    // Open it anyway, but never write it back. Refusing to open would strand
+                    // the whole chest over one item whose prefab no longer resolves - remove
+                    // a content mod and 99,999 good stacks become unreachable with no way in.
+                    // Read-only matches what the single-player path does with _loadWasPartial.
+                    Plugin.Log.LogError(
+                        $"Chest {storeId} loaded {inventory.m_inventory.Count} of {expected} " +
+                        "stack(s). Opening it read-only: it will not be saved, so the stored " +
+                        "contents are untouched. Anything missing has an item prefab this " +
+                        "install cannot resolve.");
                 }
             }
 
-            var session = new ChestSession(storeId, inventory);
+            var session = new ChestSession(storeId, inventory) { ReadOnly = partial };
             Open[storeId] = session;
+
+            // Before any page is built, so the numbering a client is handed is the numbering
+            // it will still be holding. A read-only session is left alone: its contents are
+            // the ones we could not fully read, and they are never written back anyway.
+            // Persisted only when something actually merged. Persist is a full serialize of
+            // the whole chest and marks the store dirty, so writing unconditionally made
+            // merely looking inside a large chest cost a rewrite of every chest in the world.
+            if (!session.ReadOnly && session.Consolidate())
+            {
+                Persist(session);
+            }
 
             Plugin.Log.LogDebug($"Opened session for chest {storeId} with {session.TotalCount} stacks.");
             return session;
@@ -76,9 +110,24 @@ namespace BottomlessChest.Core
                 return;
             }
 
-            var package = new ZPackage();
-            session.Inventory.Save(package);
-            SidecarStore.Instance.Put(session.StoreId, package.GetArray());
+            if (session.ReadOnly)
+            {
+                // Loaded short, so the copy on disk is the more complete one. Writing this
+                // back would replace it with what we managed to read.
+                return;
+            }
+
+            // Same door as BottomlessContainer.SaveToStore. This is the dedicated-server
+            // write path, and it was writing raw Inventory.Save straight into the store -
+            // a different format from the other writer, with no count check, into the same
+            // file.
+            var payload = InventorySerializer.Save(session.Inventory, session.StoreId);
+            if (payload == null)
+            {
+                return;
+            }
+
+            SidecarStore.Instance.Put(session.StoreId, payload);
         }
 
         /// <summary>

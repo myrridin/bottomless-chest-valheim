@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Splatform;
 
 namespace BottomlessChest.Storage
 {
@@ -23,6 +24,11 @@ namespace BottomlessChest.Storage
         private const int FormatVersion = 1;
         private const uint Magic = 0x424C4331; // "BLC1"
         private const string Extension = ".bottomless.dat";
+
+        // SaveSystem.CreateFileForWriting picks SameFolder for a world save file and
+        // SameFileEnding for everything else. Ours is not a world save file - it lives
+        // beside the world directory, not inside it - so this is the branch it falls in.
+        private const CloudStorageFileGrouping SaveGrouping = CloudStorageFileGrouping.SameFileEnding;
 
         private readonly Dictionary<string, Entry> _entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
         private string _loadedWorld;
@@ -68,7 +74,7 @@ namespace BottomlessChest.Storage
 
                 EnsureLoaded();
                 var world = ZNet.m_world;
-                return world != null && _loadedWorld == world.m_fileName;
+                return world != null && _loadedWorld == world.m_worldName;
             }
         }
 
@@ -85,17 +91,11 @@ namespace BottomlessChest.Storage
 
             foreach (var pair in _entries)
             {
-                var stacks = 0;
-                try
-                {
-                    var pkg = new ZPackage(pair.Value.Contents);
-                    pkg.ReadInt();
-                    stacks = pkg.ReadInt();
-                }
-                catch
-                {
-                    stacks = -1;
-                }
+                // -1 reads as "could not tell" in the console output, which is honest and
+                // distinguishable from a chest that really is empty.
+                var stacks = Logic.InventoryPayload.TryReadHeader(pair.Value.Contents, out var header)
+                    ? header.Count
+                    : -1;
 
                 yield return (pair.Key, stacks);
             }
@@ -164,33 +164,129 @@ namespace BottomlessChest.Storage
                 return;
             }
 
-            if (_loadedWorld == world.m_fileName)
+            if (_loadedWorld == world.m_worldName)
             {
                 return;
             }
 
             _entries.Clear();
             _dirty = false;
-            _loadedWorld = world.m_fileName;
+            _loadedWorld = world.m_worldName;
 
-            var save = SavePath(world);
+            // Several places may hold a store: the world's own storage and the local
+            // fallback, each with the pre-1.0 location and the one a build on this branch
+            // briefly wrote into. A file that will not read falls through to the next.
+            var candidates = Logic.StoreLocations.ReadCandidates(
+                WorldsFolder(world.m_fileSource),
+                WorldsFolder(FileHelpers.FileSource.Local),
+                world.m_worldName);
 
-            var local = SavePath(world, FileHelpers.FileSource.Local);
+            var expected = SavePath(world, world.m_fileSource);
 
-            if (!TryRead(save, world.m_fileSource)
-                && !TryRead(save + ".old", world.m_fileSource)
-                && !TryRead(save + ".old2", world.m_fileSource)
-                && !TryRead(local, FileHelpers.FileSource.Local)
-                && !TryRead(local + ".old", FileHelpers.FileSource.Local))
+            // Newest first, because a well-formed stale copy is the dangerous case: it
+            // parses, so it would be accepted, and the next save writes it back over the
+            // newer one. That is reachable today - ChooseSource diverts writes to local
+            // storage when the cloud quota is short, and the abandoned cloud copy still sits
+            // earlier in the list. Ordering by write time makes recency decide, and the
+            // list order settles ties so the search stays predictable.
+            foreach (var candidate in ByMostRecent(candidates, world))
             {
-                Plugin.Log.LogInfo($"No existing chest store for world '{world.m_fileName}'. Starting empty.");
+                var source = candidate.FromLocalFallback
+                    ? FileHelpers.FileSource.Local
+                    : world.m_fileSource;
+
+                if (!TryRead(candidate.Path, source))
+                {
+                    continue;
+                }
+
+                // Worth saying out loud: it means the next save moves the store, and if
+                // anything later goes wrong this line is where it was read from. The
+                // destination is named as the likely one rather than the certain one -
+                // ChooseSource can still divert the write to local storage if the cloud
+                // quota is short, and says so itself when it does.
+                if (candidate.Path != expected)
+                {
+                    Plugin.Log.LogInfo(
+                        $"Read chest store from '{candidate.Path}', which is not where this " +
+                        $"build writes. It will be saved to '{expected}' instead, and the file " +
+                        "it was read from is left in place as a backup.");
+                }
+
+                return;
             }
+
+            Plugin.Log.LogInfo($"No existing chest store for world '{world.m_worldName}'. Starting empty.");
         }
 
-        private static string SavePath(World world) => SavePath(world, world.m_fileSource);
+        /// <summary>
+        /// Orders candidates by last write time, newest first, keeping list order for ties.
+        /// </summary>
+        /// <remarks>
+        /// Only files that exist are considered; the rest keep their place at the back so
+        /// the search still covers them. A storage layer that cannot report a write time
+        /// answers <c>MinValue</c>, which leaves the original order intact - degrading to
+        /// the old behaviour rather than to a random one.
+        /// </remarks>
+        private static List<Logic.StoreCandidate> ByMostRecent(
+            IReadOnlyList<Logic.StoreCandidate> candidates, World world)
+        {
+            var ordered = new List<Logic.StoreCandidate>(candidates);
+
+            var writtenAt = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+            var position = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                var candidate = ordered[i];
+                var source = candidate.FromLocalFallback
+                    ? FileHelpers.FileSource.Local
+                    : world.m_fileSource;
+
+                position[candidate.Path] = i;
+
+                try
+                {
+                    writtenAt[candidate.Path] = FileHelpers.Exists(candidate.Path, source)
+                        ? FileHelpers.GetLastWriteTime(candidate.Path, source)
+                        : DateTime.MinValue;
+                }
+                catch
+                {
+                    // A store that cannot be stat'd can still be readable, so it keeps its
+                    // place rather than being dropped.
+                    writtenAt[candidate.Path] = DateTime.MinValue;
+                }
+            }
+
+            ordered.Sort((left, right) =>
+            {
+                var byTime = writtenAt[right.Path].CompareTo(writtenAt[left.Path]);
+                return byTime != 0 ? byTime : position[left.Path].CompareTo(position[right.Path]);
+            });
+
+            return ordered;
+        }
+
+        /// <summary>
+        /// The worlds folder itself - not the per-world directory 1.0 introduced.
+        /// </summary>
+        /// <remarks>
+        /// 1.0 replaced <c>World.GetWorldSavePath</c> with <c>World.GetSaveDirectory</c>,
+        /// which is not the same thing: it appends "/&lt;worldName&gt;/". Substituting one
+        /// for the other looks like following a rename, and it is where the store must never
+        /// go - Valheim prunes unrecognised files from that directory, so a world backup or
+        /// restore would delete every chest in the world. See
+        /// <c>Logic.StoreLocations.WritePath</c>.
+        ///
+        /// <c>SaveSystem.GetWorldsSaveRootPath</c> returns exactly what the old method did,
+        /// so this is a faithful port and the store does not move.
+        /// </remarks>
+        private static string WorldsFolder(FileHelpers.FileSource source) =>
+            SaveSystem.GetWorldsSaveRootPath(source);
 
         private static string SavePath(World world, FileHelpers.FileSource source) =>
-            World.GetWorldSavePath(source) + "/" + world.m_fileName + Extension;
+            Logic.StoreLocations.WritePath(WorldsFolder(source), world.m_worldName);
 
         /// <summary>
         /// Decides where this world's store should be written.
@@ -207,11 +303,12 @@ namespace BottomlessChest.Storage
         /// The contents are safe and listed by 'bottomless list' on the machine that holds
         /// them, which is a far better failure than a world that cannot save.
         /// </remarks>
-        private FileHelpers.FileSource ChooseSource(World world)
+        /// <returns>Where to write, or null if it must not be written at all.</returns>
+        private FileHelpers.FileSource? ChooseSource(World world)
         {
             var preferred = world.m_fileSource;
 
-            if (preferred != FileHelpers.FileSource.Cloud || !FileHelpers.CloudStorageEnabled)
+            if (preferred != FileHelpers.FileSource.Cloud || !FileHelpers.CloudStorageSupportedAndEnabled)
             {
                 return preferred;
             }
@@ -233,14 +330,17 @@ namespace BottomlessChest.Storage
                 return preferred;
             }
 
-            if (!FileHelpers.LocalStorageSupported)
+            if (!FileHelpers.LocalStorageFallbackSupported)
             {
+                // This branch is newly reachable: 0.221 hardcoded CloudStorageSupported to
+                // false, so the quota check never ran. Returning the cloud source here would
+                // save anyway, doing the exact thing the message promises to avoid.
                 Plugin.Log.LogError(
                     $"Chest contents need {required / 1024}KB but only {remaining / 1024}KB of cloud " +
                     "storage remains, and local storage is unavailable. Not saving, to avoid " +
                     "exhausting the quota your world saves also use.");
 
-                return preferred;
+                return null;
             }
 
             if (!_warnedAboutCloudFallback)
@@ -321,13 +421,20 @@ namespace BottomlessChest.Storage
             }
 
             var world = ZNet.m_world;
-            if (world == null || _loadedWorld != world.m_fileName)
+            if (world == null || _loadedWorld != world.m_worldName)
             {
                 return;
             }
 
             var timer = System.Diagnostics.Stopwatch.StartNew();
-            var source = ChooseSource(world);
+            var chosen = ChooseSource(world);
+            if (chosen == null)
+            {
+                // _dirty stays set, so this retries rather than quietly giving up.
+                return;
+            }
+
+            var source = chosen.Value;
             var save = SavePath(world, source);
             var pending = save + ".new";
             var previous = save + ".old";
@@ -335,9 +442,33 @@ namespace BottomlessChest.Storage
 
             try
             {
-                FileHelpers.EnsureDirectoryExists(World.GetWorldSavePath(source));
+                // Local only. It takes a file path and derives the directory itself, so
+                // handing it a directory would create that directory's parent. For a cloud
+                // save there is no directory to make and the path is not rooted on this
+                // filesystem, so asking would create a stray folder off the drive root or
+                // throw - either way turning every flush into a failed save. FileWriter
+                // already does this for the local branch itself.
+                if (source != FileHelpers.FileSource.Cloud)
+                {
+                    FileHelpers.EnsureDirectoryExists(save);
+                }
 
-                writer = new FileWriter(pending, FileHelpers.FileHelperType.Binary, source);
+                writer = new FileWriter(pending, SaveGrouping, FileHelpers.FileHelperType.Binary, source);
+
+                // 1.0's FileWriter no longer throws when it cannot open: it returns with
+                // m_binary null and the reason in Status. Writing to that null is an
+                // NullReferenceException whose message says nothing about the real problem,
+                // and this is a log someone reads while wondering where a chest went.
+                if (writer.Status != FileWriter.WriterStatus.OpenSucceeded || writer.m_binary == null)
+                {
+                    Plugin.Log.LogError(
+                        $"Could not open '{pending}' for writing ({writer.Status}). The chest " +
+                        "store was not saved; the previous file is untouched and the write " +
+                        "will be retried.");
+
+                    return;
+                }
+
                 var binary = writer.m_binary;
 
                 binary.Write(Magic);
@@ -353,6 +484,22 @@ namespace BottomlessChest.Storage
                 }
 
                 writer.Finish();
+
+                // Finish is where a cloud write actually happens, and it reports failure by
+                // setting Status rather than throwing. Rotating on a write that never landed
+                // would move the good store to ".old" and a never-written file into its
+                // place, then mark everything clean - losing the chest to a single failed
+                // chunk upload.
+                if (writer.Status != FileWriter.WriterStatus.CloseSucceeded)
+                {
+                    Plugin.Log.LogError(
+                        $"Chest store write to '{pending}' did not complete ({writer.Status}). " +
+                        "The previous file is untouched and the write will be retried.");
+
+                    writer = null;
+                    return;
+                }
+
                 writer = null;
 
                 // Keep two generations. One was very nearly not enough: a single bad save
@@ -365,10 +512,10 @@ namespace BottomlessChest.Storage
                         FileHelpers.Delete(older, source);
                     }
 
-                    FileHelpers.Copy(previous, source, older, source);
+                    FileHelpers.Copy(previous, source, older, SaveGrouping, source);
                 }
 
-                FileHelpers.ReplaceOldFile(save, pending, previous, source);
+                FileHelpers.ReplaceOldFile(save, pending, previous, SaveGrouping, source);
 
                 _dirty = false;
 

@@ -16,7 +16,10 @@ namespace BottomlessChest.Core
     /// </remarks>
     internal static class TakeAllPatch
     {
-        [HarmonyPatch(typeof(Container), "RPC_TakeAllRespons")]
+        // Valheim 1.0 fixed the spelling: this was "RPC_TakeAllRespons" through 0.221.
+        // A name that no longer resolves is a patch that never runs, silently - so if Take
+        // All ever stops honouring the search after a game update, check this string first.
+        [HarmonyPatch(typeof(Container), "RPC_TakeAllResponse")]
         private static class Patch
         {
             private static bool Prefix(Container __instance, long uid, bool granted)

@@ -51,26 +51,41 @@ namespace BottomlessChest.Net
             ToServer(package);
         }
 
-        internal static void RequestPage(string storeId, string query, int scrollRow)
+        /// <summary>
+        /// Asks for a page. <paramref name="requestId"/> comes back on the reply so the
+        /// client can tell a current answer from a superseded one.
+        /// </summary>
+        internal static void RequestPage(string storeId, string query, int scrollRow, int requestId)
         {
             var package = new ZPackage();
             package.Write((int)ChestMessage.Page);
             package.Write(storeId);
             package.Write(query ?? string.Empty);
             package.Write(scrollRow);
+            package.Write(requestId);
             ToServer(package);
         }
 
-        internal static void Take(string storeId, long version, IReadOnlyList<int> indices)
+        /// <summary>
+        /// Asks the server to remove items, whole or in part.
+        /// </summary>
+        /// <remarks>
+        /// Each index is followed by an amount, 0 meaning the whole stack. Pairing them
+        /// rather than sending two runs keeps a mismatched count from silently pairing the
+        /// wrong amount with the wrong item.
+        /// </remarks>
+        internal static void Take(
+            string storeId, long version, IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null)
         {
             var package = new ZPackage();
             package.Write((int)ChestMessage.Take);
             package.Write(storeId);
             package.Write(version);
             package.Write(indices.Count);
-            foreach (var index in indices)
+            for (var i = 0; i < indices.Count; i++)
             {
-                package.Write(index);
+                package.Write(indices[i]);
+                package.Write(amounts == null || i >= amounts.Count ? 0 : amounts[i]);
             }
 
             ToServer(package);
@@ -154,12 +169,13 @@ namespace BottomlessChest.Net
                 {
                     var query = package.ReadString();
                     var scrollRow = package.ReadInt();
+                    var requestId = package.ReadInt();
 
                     var session = ChestSessions.Acquire(storeId);
                     if (session != null)
                     {
                         session.SetQuery(query);
-                        SendPage(sender, session, scrollRow);
+                        SendPage(sender, session, scrollRow, requestId);
                     }
 
                     break;
@@ -170,13 +186,22 @@ namespace BottomlessChest.Net
                     var version = package.ReadLong();
                     var count = package.ReadInt();
                     var indices = new List<int>(count);
+                    var amounts = new List<int>(count);
                     for (var i = 0; i < count; i++)
                     {
                         indices.Add(package.ReadInt());
+                        amounts.Add(package.ReadInt());
                     }
 
                     if (!ChestSessions.TryGet(storeId, out var session))
                     {
+                        break;
+                    }
+
+                    if (RefusesToChange(session, sender, "a withdrawal"))
+                    {
+                        // A page puts back the slots the client blanked when it asked.
+                        SendPage(sender, session, -1);
                         break;
                     }
 
@@ -191,17 +216,38 @@ namespace BottomlessChest.Net
                         break;
                     }
 
-                    var taken = session.Take(indices);
+                    var taken = session.Take(indices, amounts);
                     ChestSessions.Persist(session);
 
                     Plugin.Log.LogDebug(
                         $"Take from {storeId}: {indices.Count} requested, {taken.Count} removed, " +
                         $"{session.TotalCount} left.");
 
+                    // The items are already out of the session and persisted, so an
+                    // unsendable reply loses them outright. Serialize returning null is the
+                    // "do not lose data" signal; turning it into an empty payload here would
+                    // invert it on the one path where that is fatal.
+                    var takenBytes = Serialize(taken);
+                    if (takenBytes == null)
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not send {taken.Count} taken stack(s) from chest {storeId}. " +
+                            "Putting them back rather than dropping them.");
+
+                        foreach (var item in taken)
+                        {
+                            session.Add(item);
+                        }
+
+                        ChestSessions.Persist(session);
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
                     var granted = new ZPackage();
                     granted.Write((int)ChestMessage.Granted);
                     granted.Write(storeId);
-                    granted.Write(Serialize(taken));
+                    granted.Write(takenBytes);
                     _rpc.SendPackage(sender, granted);
 
                     // Counts only, not a page: re-sending one would compact the remaining
@@ -220,9 +266,30 @@ namespace BottomlessChest.Net
                         break;
                     }
 
-                    foreach (var item in Deserialize(itemBytes))
+                    if (RefusesToChange(session, sender, "a deposit"))
                     {
-                        session.Add(item);
+                        // Anything but Accepted leaves the item with the sender.
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
+                    // Accepted makes the client delete its copy of the item. Sending it for
+                    // a payload we could not read destroys the item outright - and a payload
+                    // that read as nothing at all is exactly that case, because the loader
+                    // skips items whose prefab it cannot resolve and still reports success.
+                    if (!TryDeserialize(itemBytes, out var deposited) || deposited.Count == 0)
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not read a deposit into chest {storeId}; refusing it so the " +
+                            "sender keeps the item.");
+
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
+                    foreach (var item in deposited)
+                    {
+                        session.Deposit(item);
                     }
 
                     ChestSessions.Persist(session);
@@ -241,8 +308,18 @@ namespace BottomlessChest.Net
                     var stacks = package.ReadInt();
                     var prefabName = package.ReadString();
 
+                    if (!TestingAllowed(sender, "fill", storeId))
+                    {
+                        break;
+                    }
+
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
+                    {
+                        break;
+                    }
+
+                    if (RefusesToChange(session, sender, "a fill"))
                     {
                         break;
                     }
@@ -269,15 +346,25 @@ namespace BottomlessChest.Net
 
                 case ChestMessage.Clear:
                 {
+                    if (!TestingAllowed(sender, "empty", storeId))
+                    {
+                        break;
+                    }
+
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
                     {
                         break;
                     }
 
+                    if (RefusesToChange(session, sender, "an empty"))
+                    {
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
                     var before = session.TotalCount;
-                    session.Inventory.m_inventory.Clear();
-                    session.Touch();
+                    session.Clear();
                     ChestSessions.Persist(session);
 
                     Plugin.Log.LogDebug($"Emptied chest {storeId} of {before} stacks.");
@@ -299,24 +386,42 @@ namespace BottomlessChest.Net
                         break;
                     }
 
+                    if (RefusesToChange(session, sender, "a deposit"))
+                    {
+                        // An empty kept-list is how this reply says "none of them", which
+                        // leaves every offered item with the sender.
+                        var refused = new ZPackage();
+                        refused.Write((int)ChestMessage.Stacked);
+                        refused.Write(storeId);
+                        refused.Write(0);
+                        _rpc.SendPackage(sender, refused);
+
+                        if (!wasOpen)
+                        {
+                            ChestSessions.Release(storeId);
+                        }
+
+                        break;
+                    }
+
                     // Only items the chest already holds are taken, which is what "stack"
                     // means as opposed to "dump everything in".
                     var held = new HashSet<string>(System.StringComparer.Ordinal);
                     foreach (var item in session.Inventory.m_inventory)
                     {
-                        held.Add(StackKey(item));
+                        held.Add(Core.ChestSession.StackKey(item));
                     }
 
                     var kept = new List<int>();
                     for (var i = 0; i < offered.Count; i++)
                     {
                         var item = offered[i];
-                        if (item.m_shared.m_maxStackSize <= 1 || !held.Contains(StackKey(item)))
+                        if (item.m_shared.m_maxStackSize <= 1 || !held.Contains(Core.ChestSession.StackKey(item)))
                         {
                             continue;
                         }
 
-                        session.Add(item);
+                        session.Deposit(item);
                         kept.Add(i);
                     }
 
@@ -375,7 +480,7 @@ namespace BottomlessChest.Net
         }
 
         /// <summary>Sends one window of items. A negative row means "keep the current one".</summary>
-        private static void SendPage(long peer, ChestSession session, int scrollRow)
+        private static void SendPage(long peer, ChestSession session, int scrollRow, int requestId = 0)
         {
             var requested = scrollRow < 0 ? session.LastScrollRow : scrollRow;
             var page = session.Page(requested, Filter.ChestView.PageSlots);
@@ -393,35 +498,110 @@ namespace BottomlessChest.Net
             reply.Write(session.MatchCount);
             reply.Write(session.TotalWeight);
             reply.Write(row);
+            reply.Write(requestId);
             reply.Write(Serialize(page));
 
             _rpc.SendPackage(peer, reply);
         }
 
         /// <summary>Identity for stacking: same item, same quality, same variant.</summary>
-        private static string StackKey(ItemDrop.ItemData item) =>
-            $"{item.m_shared.m_name}|{item.m_quality}|{item.m_variant}";
+        /// <summary>
+        /// Whether a chest is open read-only, and says so to the client if it is.
+        /// </summary>
+        /// <remarks>
+        /// A session goes read-only when the store loaded short - an item whose prefab this
+        /// install cannot resolve - and <see cref="ChestSessions.Persist"/> then refuses to
+        /// write it, so the copy on disk stays the more complete one. Every path that
+        /// changes contents has to ask this first. Without it the change happened in memory,
+        /// the write was silently skipped, and the client was told it had succeeded: a
+        /// deposit destroyed the item, and a withdrawal handed out a copy the chest still
+        /// had.
+        /// </remarks>
+        private static bool RefusesToChange(ChestSession session, long sender, string what)
+        {
+            if (session == null || !session.ReadOnly)
+            {
+                return false;
+            }
+
+            Plugin.Log.LogError(
+                $"Refusing {what} on chest {session.StoreId}: it loaded short and is open " +
+                "read-only, so nothing can be written to it. Whoever asked keeps their items. " +
+                "Something in this chest has an item prefab this install cannot resolve.");
+
+            return true;
+        }
 
         private static byte[] Serialize(List<ItemDrop.ItemData> items)
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, Filter.ChestView.VisibleRows);
             scratch.m_inventory.AddRange(items);
 
-            var package = new ZPackage();
-            scratch.Save(package);
-            return package.GetArray();
+            // Wrapped, like everything else we write, so the other end reads it back with a
+            // direct add rather than through Inventory.AddItem. AddItem places items by grid
+            // position, and 1.0 stores grid positions as bytes - so y wraps at 256 and an
+            // 8-wide chest has only 2048 distinct slots. Two stacks of one item from far
+            // apart in a big chest can land on a page sharing a position, and AddItem would
+            // merge them into one. On a Granted reply that is items the server has already
+            // removed and will never send again.
+            return Storage.InventorySerializer.Save(scratch, "page");
         }
 
-        private static List<ItemDrop.ItemData> Deserialize(byte[] bytes)
+        /// <summary>
+        /// Whether this machine allows the testing commands to act on its chests.
+        /// </summary>
+        /// <remarks>
+        /// The console gate in BottomlessCommands only governs the machine typing the
+        /// command. These two messages are destructive - "empty" discards a chest outright -
+        /// and the server has no way to know what the sender's config says, or whether the
+        /// sender is running this version at all. A 0.1.0 client predates the setting
+        /// entirely and would happily send either.
+        ///
+        /// So the server decides for its own chests. A peer cannot talk a server into
+        /// wiping a chest by turning a flag on at its end.
+        /// </remarks>
+        private static bool TestingAllowed(long sender, string what, string storeId)
+        {
+            if (Settings.ModConfig.EnableTestingCommands != null
+                && Settings.ModConfig.EnableTestingCommands.Value)
+            {
+                return true;
+            }
+
+            Plugin.Log.LogWarning(
+                $"Refused '{what}' on chest {storeId} from peer {sender}: testing commands are " +
+                "disabled here. Enable EnableTestingCommands in the Testing section of this " +
+                "machine's config if that was intended.");
+
+            return false;
+        }
+
+        private static List<ItemDrop.ItemData> Deserialize(byte[] bytes) =>
+            TryDeserialize(bytes, out var items) ? items : new List<ItemDrop.ItemData>();
+
+        /// <summary>Reads a wire payload, reporting whether it could be read at all.</summary>
+        /// <remarks>
+        /// The caller has to know. A payload that fails to load yields an empty list, which
+        /// is indistinguishable from an empty chest unless the failure is reported - and on
+        /// the deposit path that difference decides whether the sender keeps their item.
+        /// </remarks>
+        private static bool TryDeserialize(byte[] bytes, out List<ItemDrop.ItemData> items)
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, 4096);
 
-            if (bytes != null && bytes.Length > 0 && !FastInventoryReader.TryLoad(scratch, bytes, out _))
+            // The count has to be checked, not discarded. The loader skips an item whose
+            // prefab this install cannot resolve, logs it, and still returns true - so
+            // without this a deposit from a client running a content mod the server lacks
+            // read as a success carrying nothing, and the sender was told to delete it.
+            var ok = true;
+            if (bytes != null && bytes.Length > 0)
             {
-                scratch.Load(new ZPackage(bytes));
+                ok = InventorySerializer.Load(scratch, bytes, out var expected)
+                     && scratch.m_inventory.Count == expected;
             }
 
-            return new List<ItemDrop.ItemData>(scratch.m_inventory);
+            items = new List<ItemDrop.ItemData>(scratch.m_inventory);
+            return ok;
         }
 
         private static IEnumerator OnClientReceive(long sender, ZPackage package)
@@ -443,15 +623,28 @@ namespace BottomlessChest.Net
                     var matches = package.ReadInt();
                     var weight = package.ReadSingle();
                     var scrollRow = package.ReadInt();
+                    var requestId = package.ReadInt();
                     var items = Deserialize(package.ReadByteArray());
 
-                    Filter.ChestView.ApplyPage(storeId, version, total, matches, weight, scrollRow, items);
+                    Filter.ChestView.ApplyPage(
+                        storeId, version, total, matches, weight, scrollRow, requestId, items);
                     break;
                 }
 
                 case ChestMessage.Granted:
                 {
-                    var items = Deserialize(package.ReadByteArray());
+                    // The one receive path where a quiet failure is permanent: the server has
+                    // already removed these and persisted without them, so whatever does not
+                    // read here is gone. Whatever does read is still applied.
+                    if (!TryDeserialize(package.ReadByteArray(), out var items))
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not fully read the items granted from chest {storeId}; " +
+                            $"{items.Count} recovered. The server removed them before sending, " +
+                            "so anything missing is lost. This install is most likely missing " +
+                            "a content mod the server has.");
+                    }
+
                     Filter.ChestView.ApplyGranted(items);
                     break;
                 }

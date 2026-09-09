@@ -261,9 +261,14 @@ namespace BottomlessChest.Core
             var adopted = _container.m_inventory.NrOfItems();
             Plugin.Log.LogInfo($"Adopted {adopted} item stack(s) from the ZDO into chest store {storeId}.");
 
-            var package = new ZPackage();
-            _container.m_inventory.Save(package);
-            SidecarStore.Instance.Put(storeId, package.GetArray());
+            var payload = Storage.InventorySerializer.Save(_container.m_inventory, storeId);
+            if (payload == null)
+            {
+                // The ZDO still holds the items, so nothing is lost by not adopting them.
+                return false;
+            }
+
+            SidecarStore.Instance.Put(storeId, payload);
 
             return true;
         }
@@ -334,9 +339,13 @@ namespace BottomlessChest.Core
                 InventoryCapacity.Apply(_container.m_inventory);
             }
 
-            var package = new ZPackage();
-            _container.m_inventory.Save(package);
-            SidecarStore.Instance.Put(storeId, package.GetArray());
+            var payload = Storage.InventorySerializer.Save(_container.m_inventory, storeId);
+            if (payload == null)
+            {
+                return;
+            }
+
+            SidecarStore.Instance.Put(storeId, payload);
         }
 
         /// <summary>
@@ -346,24 +355,8 @@ namespace BottomlessChest.Core
         /// The grid has to be big enough before Load runs, and Load is the only thing that
         /// knows how many items there are - so the header is peeked first.
         /// </remarks>
-        private static int PeekItemCount(byte[] contents)
-        {
-            if (contents == null || contents.Length < 8)
-            {
-                return 0;
-            }
-
-            try
-            {
-                var package = new ZPackage(contents);
-                package.ReadInt();
-                return package.ReadInt();
-            }
-            catch
-            {
-                return 0;
-            }
-        }
+        private static int PeekItemCount(byte[] contents) =>
+            Logic.InventoryPayload.TryReadHeader(contents, out var header) ? header.Count : 0;
 
         /// <summary>Loads a serialized inventory without losing items to grid capacity.</summary>
         private void LoadIntoInventory(byte[] contents)
@@ -376,21 +369,45 @@ namespace BottomlessChest.Core
             _container.m_inventory.RemoveAll();
             InventoryCapacity.ApplyFor(_container.m_inventory, expected);
 
-            if (!Storage.FastInventoryReader.TryLoad(_container.m_inventory, contents, out expected))
-            {
-                _container.m_inventory.Load(new ZPackage(contents));
-            }
+            // A payload that could not be read at all reports no count, so comparing counts
+            // alone would see nothing loaded, nothing expected, and call that a success -
+            // then write an empty chest over bytes we simply failed to parse.
+            var readable = Storage.InventorySerializer.Load(_container.m_inventory, contents, out expected);
 
             var actual = _container.m_inventory.m_inventory.Count;
-            _loadWasPartial = actual != expected;
+            _loadWasPartial = !readable || actual != expected;
 
             if (_loadWasPartial)
             {
-                // Loud, because the failure mode is silent: AddItem drops what will not fit
-                // and reports nothing, so the chest simply looks emptier than it is.
+                // Loud, because the failure mode is silent: the chest simply looks emptier
+                // than it is. Two things cause it - a grid too small, where AddItem drops
+                // what will not fit and reports nothing, or a payload that could not be
+                // read to the end. The serializer logs the second, so both are named here
+                // rather than blaming the grid for something it did not do.
                 Plugin.Log.LogError(
-                    $"Loaded {actual} of {expected} stacks - {expected - actual} were dropped " +
-                    $"because the grid was too small ({_container.m_inventory.m_width}x{_container.m_inventory.m_height}).");
+                    $"Loaded {actual} of {expected} stacks - {expected - actual} missing. " +
+                    $"Either the grid was too small ({_container.m_inventory.m_width}x" +
+                    $"{_container.m_inventory.m_height}) or the store could not be read to " +
+                    "the end; any read error is logged above. This chest will refuse to save.");
+
+                // Deliberately not consolidated. A partial load never gets written back, and
+                // rewriting contents we already know are incomplete buys nothing while
+                // giving a later change somewhere else the chance to save them.
+                return;
+            }
+
+            if (!StackConsolidation.Collapse(_container.m_inventory, out var collapsed))
+            {
+                // Same door as a short load: refuse to save, so the store keeps what it had.
+                _loadWasPartial = true;
+                return;
+            }
+
+            if (collapsed > 0)
+            {
+                Plugin.Log.LogInfo(
+                    $"Consolidated {collapsed} part-stack(s) on load; " +
+                    $"{_container.m_inventory.m_inventory.Count} stack(s) left.");
             }
         }
 
@@ -510,6 +527,13 @@ namespace BottomlessChest.Core
             finally
             {
                 _container.m_loading = false;
+
+                // Leaking this leaves it true for the life of the process, which makes
+                // SaveToStore's headroom top-up a no-op and disables the capacity hook. The
+                // symptom is another mod's deposits vanishing into a full grid - the exact
+                // thing that top-up exists to prevent. The other two load paths already
+                // reset it; this one did not.
+                InventoryCapacity.Suspended = false;
             }
         }
     }
