@@ -98,6 +98,22 @@ It is now behind the same Debug-listener check `ContentsWatch` uses, hoisted int
 
 So the run should produce, from this mod, the load line and nothing else.
 
+### The probe had already answered its question
+
+Its report is preserved at `recovery/logs-pre-0.2.0-release/client-LogOutput.log:606`. The
+scrollbar hypothesis was right, and the parked scrollbar work does not need to re-run it:
+
+- The bar is `ContainerScroll`, a **sibling** of `ContainerGrid`, not an ancestor - which is
+  why the first attempt searched the ancestors and never found the ScrollRect to detach.
+- `ContainerGrid` carries `InventoryGrid`, `RectMask2D`, `ScrollRect` and
+  `ScrollRectEnsureVisible` on one object, and its ScrollRect reports
+  `ownsThisBar=True`, `content='Root'`, `viewport=null`.
+- A second ScrollRect, `Recipes`, exists under the same window and does not own the bar, so
+  anything searching by type has to disambiguate.
+
+That log is also the evidence for the bug this release fixes: the dump is stamped
+`[Info   :BottomlessChest]` in a session that already had Debug off.
+
 ## Bugs found today that predate 1.0
 
 All three ship in 0.1.0 today. Recorded in the changelog because someone deciding whether to
