@@ -172,21 +172,76 @@ namespace BottomlessChest.Storage
             _dirty = false;
             _loadedWorld = world.m_worldName;
 
-            var save = SavePath(world);
+            // Valheim 1.0 moves a world into its own directory the first time it is opened,
+            // and leaves our store behind in the parent. Both places are searched, newest
+            // layout first, and a file that will not read falls through to the next - so a
+            // half-written store cannot hide a good one behind it.
+            var candidates = Logic.StoreLocations.ReadCandidates(
+                WorldsFolder(world.m_fileSource),
+                WorldsFolder(FileHelpers.FileSource.Local),
+                world.m_worldName);
 
-            var local = SavePath(world, FileHelpers.FileSource.Local);
+            var expected = SavePath(world, world.m_fileSource);
 
-            if (!TryRead(save, world.m_fileSource)
-                && !TryRead(save + ".old", world.m_fileSource)
-                && !TryRead(save + ".old2", world.m_fileSource)
-                && !TryRead(local, FileHelpers.FileSource.Local)
-                && !TryRead(local + ".old", FileHelpers.FileSource.Local))
+            foreach (var candidate in candidates)
             {
-                Plugin.Log.LogInfo($"No existing chest store for world '{world.m_worldName}'. Starting empty.");
+                var source = candidate.FromLocalFallback
+                    ? FileHelpers.FileSource.Local
+                    : world.m_fileSource;
+
+                if (!TryRead(candidate.Path, source))
+                {
+                    continue;
+                }
+
+                // Worth saying out loud: it means the next save moves the store, and if
+                // anything later goes wrong this line is where it was read from.
+                if (candidate.Path != expected)
+                {
+                    Plugin.Log.LogInfo(
+                        $"Read chest store from '{candidate.Path}'. It will be written to " +
+                        $"'{expected}' from now on; the file it came from is left in place " +
+                        "as a backup.");
+                }
+
+                return;
             }
+
+            Plugin.Log.LogInfo($"No existing chest store for world '{world.m_worldName}'. Starting empty.");
         }
 
-        private static string SavePath(World world) => SavePath(world, world.m_fileSource);
+        /// <summary>
+        /// Which save layout the loaded world is actually using.
+        /// </summary>
+        /// <remarks>
+        /// <c>m_chunkedSave</c> is private, but <c>GetSavePaths</c> is not and branches on
+        /// it: a chunked world reports one directory, a legacy world reports its .db and
+        /// .fwl. Asking the world beats guessing from the game version, because a 1.0 client
+        /// can hold either until the world has been converted.
+        ///
+        /// Anything unexpected answers Flat, which is where the store has always gone. That
+        /// is the safe way to be wrong - the file lands in the parent directory, which the
+        /// read candidates still cover, so it is found either way.
+        /// </remarks>
+        private static Logic.WorldLayout LayoutOf(World world)
+        {
+            try
+            {
+                var paths = world.GetSavePaths();
+
+                return paths != null && paths.Count == 1
+                    ? Logic.WorldLayout.Chunked
+                    : Logic.WorldLayout.Flat;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning(
+                    $"Could not tell how world '{world.m_worldName}' is saved, assuming the " +
+                    $"pre-1.0 layout: {ex.Message}");
+
+                return Logic.WorldLayout.Flat;
+            }
+        }
 
         /// <summary>
         /// The worlds folder itself - not the per-world directory 1.0 introduced.
@@ -206,7 +261,14 @@ namespace BottomlessChest.Storage
             SaveSystem.GetWorldsSaveRootPath(source);
 
         private static string SavePath(World world, FileHelpers.FileSource source) =>
-            WorldsFolder(source) + "/" + world.m_worldName + Extension;
+            Logic.StoreLocations.WritePath(WorldsFolder(source), world.m_worldName, LayoutOf(world));
+
+        /// <summary>The directory part of a store path, which is what has to exist.</summary>
+        private static string ContainingDirectory(string path)
+        {
+            var cut = path.LastIndexOf('/');
+            return cut > 0 ? path.Substring(0, cut) : path;
+        }
 
         /// <summary>
         /// Decides where this world's store should be written.
@@ -351,7 +413,11 @@ namespace BottomlessChest.Storage
 
             try
             {
-                FileHelpers.EnsureDirectoryExists(WorldsFolder(source));
+                // For a converted world this is the world's own directory, which exists
+                // already; for a legacy one it is the worlds folder, as before. Asking for
+                // the containing directory of the path we are about to write covers both
+                // without the caller having to know which it got.
+                FileHelpers.EnsureDirectoryExists(ContainingDirectory(save));
 
                 writer = new FileWriter(pending, SaveGrouping, FileHelpers.FileHelperType.Binary, source);
                 var binary = writer.m_binary;
