@@ -68,19 +68,35 @@ Re-tested after installing the real release, which is a different binary from th
 that everything before it was tested against: chest appears in 1.0's new build menu, opens,
 searches, take and put all correct, drop marker in the right place.
 
-Known limit, recorded in the changelog: a ten-million-stack chest stays correct but takes
-15-20s to open and about 8s to search, and on a dedicated server that work blocks the server
-long enough for other players to see the network indicator flicker. Fine at a few hundred
-thousand.
+Known limit, recorded in the changelog: **a million stacks is the pragmatic ceiling.** Up to
+a few hundred thousand there is nothing to notice; a million is comfortable. Ten million is
+correct but on the wrong side of usable - 15-20s to open, ~8s to search, and on a dedicated
+server that blocks the main thread long enough that everyone else sees their network
+indicator blink. The changelog says so plainly rather than implying the chest is unbounded
+in practice as well as in principle.
 
 ## Still to do before shipping
 
-- [ ] One run at default log levels on the **client** (the server has been checked).
-- [ ] **Tag the release commit.** 0.1.0 shipped untagged and had to be reconstructed.
-- [ ] Re-run the upgrade diff:
-      `git diff v0.1.0..HEAD -- src/BottomlessChest/Storage/ src/BottomlessChest/Piece/ src/BottomlessChest/Plugin.cs`
-- [ ] The client was running at the pause, so it may not have the last deploy
-      (`VisibleRows` 6 → 4). Rebuild with the game closed before testing again.
+- [ ] One run at default log levels on the **client** (the server has been checked). Both
+      configs are now set for it: BepInEx logs at Info and above, and
+      `EnableTestingCommands` is back to `false` on client and server, so the run exercises
+      what a player actually installs. The dev values are saved beside each config as
+      `.bak-dev-settings`.
+- [ ] Package with `scripts/package.sh` and upload. **Not done, and not to be done without
+      being asked** - Thunderstore versions are immutable.
+- [x] **Tag the release commit.**
+- [x] Re-run the upgrade diff. Clean: the four never-change identifiers are intact and the
+      read path only gained candidates.
+
+### What the default-log run is looking for
+
+`ScrollbarProbe` used to dump the container scrollbar's whole UI hierarchy at **Info** the
+first time anyone opened a bottomless chest - a wall of text in every player's log, from a
+probe with no consumer, because the scrollbar work it was meant to inform is still parked.
+It is now behind the same Debug-listener check `ContentsWatch` uses, hoisted into
+`Core/DebugLogging.cs`, and the check comes before the walk rather than after it.
+
+So the run should produce, from this mod, the load line and nothing else.
 
 ## Bugs found today that predate 1.0
 

@@ -59,13 +59,18 @@ a dedicated server on 1.0. Anyone on 0.1.0 has all three.
 
 ### Known limits
 
-A chest holding a few hundred thousand stacks opens and searches quickly. Past that it stays
-correct but gets slow: ten million stacks takes fifteen to twenty seconds to open and about
-eight to search.
+**Treat a million stacks as the ceiling.** Up to a few hundred thousand a chest opens and
+searches so fast there is nothing to notice. At a million it is still comfortable: opening
+takes a moment and a search takes a second or two.
 
-On a dedicated server that work happens on the server, and while it runs the server is busy
-- other players will see the network indicator flicker. It recovers on its own, but a chest
-that large is worth treating as a stress test rather than a place to keep things.
+Beyond that it degrades badly. Ten million stacks is correct - nothing is lost, everything
+is found - but it takes fifteen to twenty seconds to open and around eight seconds to
+search, and on a dedicated server that work happens on the server's main thread. While it
+runs the server is not answering anyone, and other players watch their network indicator
+blink. It recovers on its own and costs nothing permanent, but it is past the point of being
+usable and well past the point of being fair to whoever else is on the server.
+
+The chest has no cap and will not stop you. This is the honest number instead of one.
 
 ### Dedicated servers
 

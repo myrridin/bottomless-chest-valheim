@@ -6,13 +6,19 @@ using UnityEngine.UI;
 namespace BottomlessChest.Gui
 {
     /// <summary>
-    /// Reports the real shape of the container scrollbar's UI hierarchy, once.
+    /// Reports the real shape of the container scrollbar's UI hierarchy, once, when Debug
+    /// logging is on.
     /// </summary>
     /// <remarks>
     /// A previous attempt to drive the scrollbar failed because it assumed the owning
     /// ScrollRect was among the scrollbar's ancestors; a scrollbar is usually a sibling of
     /// its ScrollRect instead, so it was never detached and the two fought every frame.
     /// Rather than guess a second time, this prints what is actually there.
+    ///
+    /// The scrollbar work it exists to inform has not been done, so this is instrumentation
+    /// with no consumer yet - which is exactly the kind that has to be asked for. Unarmed it
+    /// walks nothing: the Debug check comes before the hierarchy walk, not after it, so a
+    /// default install never builds the report at all.
     /// </remarks>
     internal static class ScrollbarProbe
     {
@@ -25,7 +31,12 @@ namespace BottomlessChest.Gui
         {
             private static void Postfix(InventoryGui __instance, Container container)
             {
-                if (_reported || container == null || __instance.m_containerGrid == null)
+                if (_reported || !Core.DebugLogging.Enabled)
+                {
+                    return;
+                }
+
+                if (container == null || __instance.m_containerGrid == null)
                 {
                     return;
                 }
@@ -72,7 +83,7 @@ namespace BottomlessChest.Gui
                         $"viewport='{(rect.viewport == null ? "null" : rect.viewport.name)}'");
                 }
 
-                Plugin.Log.LogInfo(report.ToString());
+                Plugin.Log.LogDebug(report.ToString());
             }
         }
 
