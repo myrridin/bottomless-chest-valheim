@@ -160,20 +160,33 @@ Ordered by what unblocks what. Nothing here is started.
    converts on first load, and the sidecar is left behind in the parent directory.
    `CasualSolo`'s pre-conversion backup and its intact store are preserved at
    `/mnt/c/valheim_mods/backup-2026-09-09-pre1.0-recovery/`.
-3. **Make it compile.** The five API changes. Storage paths deliberately excluded — that is
-   task 4, and doing it here by reflex is how the chests get lost.
+3. ~~**Make it compile.**~~ **Done.** Six API changes in the end — `FileWriter`'s constructor
+   also takes a grouping. Storage paths deliberately excluded; `SaveSystem.GetWorldsSaveRootPath`
+   reproduces the old path exactly, so nothing moved.
 4. **Store path resolution, read-path-grows.** Confirmed to affect every existing world, not
    only new ones, which makes this the release blocker rather than an edge case. Write beside
    the world wherever it actually lives; on read try the new per-world directory, then the
    flat legacy location, then the existing cloud/local fallbacks. Unit-testable if the path
    rule is lifted into `BottomlessChest.Logic`.
-5. **Fix the count.** Stop depending on vanilla's `ushort`; write and read the count
-   ourselves so a million stacks survives. Covers `SaveToStore`, `PeekItemCount` and
-   `FastInventoryReader` together, since they share one format.
-6. **Teach `FastInventoryReader` format 109** including `m_cheated`, keeping the
-   fall-back-on-anything-unrecognised rule.
-7. **Rename the patch target** to `RPC_TakeAllResponse`.
-8. **Second-wave build breakage** — whatever surfaces once storage compiles.
+5. **Fix the count.** *Half done, deliberately.*
+   - **Done:** `InventoryPayload` in `BottomlessChest.Logic` understands all three header
+     shapes and is covered by 14 tests. `PeekItemCount` and `Describe` now read through it
+     instead of assuming an int count. Saving reads its own output back and **refuses to
+     write a payload whose header disagrees with the inventory it came from** — so the
+     truncation is now a loud refusal that preserves the stored contents, instead of a
+     silent loss. Chests past 65,535 stacks stop saving rather than shrinking.
+   - **Not done:** actually lifting the ceiling. That means writing the count ourselves and
+     reading items back without `Inventory.Load`, which is a load path that has never run.
+     Given this project's history with partial loads, it should not be written blind. It
+     needs a game to run in, so it waits for one.
+6. **Teach `FastInventoryReader` format 109.** Not started. It correctly declines anything
+   that is not 106, so 1.0 stores load by the vanilla path — right, but slow, which is the
+   opposite of what a huge chest needs. 109 is a different encoding (bitfield header, byte
+   grid positions, prefab hash instead of a name) and `ItemData.Load(pkg, item, version)` is
+   public, so the rewrite should delegate to it rather than hand-parse.
+7. ~~**Rename the patch target.**~~ **Done** — `RPC_TakeAllResponse`.
+8. ~~**Second-wave build breakage.**~~ **None.** `InventoryGrid.Element` and `SetSelection`
+   were both renamed and we reference neither.
 9. **Verify on 1.0** once Jotunn ships a build: the existing in-game checklist, plus an
    explicit upgrade test from a 0.1.0 store.
 

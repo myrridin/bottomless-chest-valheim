@@ -16,6 +16,11 @@ namespace BottomlessChest.Storage
     /// This only handles format 106. Anything else falls back to vanilla, so a future save
     /// format change degrades to "slow" rather than "wrong". Any failure mid-read also falls
     /// back, because a partially applied inventory is far worse than a slow one.
+    ///
+    /// Valheim 1.0 writes format 109, which is a different encoding entirely - a bitfield
+    /// header, byte grid positions, and a prefab hash where 106 had a name. Stores written
+    /// on 1.0 therefore take the vanilla path and load correctly but slowly. Teaching this
+    /// reader 109 is worth doing and needs a running game to verify, so it waits for one.
     /// </remarks>
     internal static class FastInventoryReader
     {
@@ -29,7 +34,13 @@ namespace BottomlessChest.Storage
         {
             expected = 0;
 
-            if (contents == null || contents.Length < 8 || ObjectDB.instance == null)
+            if (contents == null || ObjectDB.instance == null)
+            {
+                return false;
+            }
+
+            if (!Logic.InventoryPayload.TryReadHeader(contents, out var header)
+                || header.ItemVersion != SupportedVersion)
             {
                 return false;
             }
@@ -40,12 +51,12 @@ namespace BottomlessChest.Storage
             {
                 var package = new ZPackage(contents);
 
-                if (package.ReadInt() != SupportedVersion)
-                {
-                    return false;
-                }
+                // Re-read the header through ZPackage rather than seeking, so the reader's
+                // position is where the items start no matter how the header was shaped.
+                package.ReadInt();
+                package.ReadInt();
 
-                expected = package.ReadInt();
+                expected = header.Count;
                 loaded = new List<ItemDrop.ItemData>(expected);
 
                 for (var i = 0; i < expected; i++)

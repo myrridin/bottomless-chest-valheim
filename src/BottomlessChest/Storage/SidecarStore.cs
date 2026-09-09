@@ -90,17 +90,11 @@ namespace BottomlessChest.Storage
 
             foreach (var pair in _entries)
             {
-                var stacks = 0;
-                try
-                {
-                    var pkg = new ZPackage(pair.Value.Contents);
-                    pkg.ReadInt();
-                    stacks = pkg.ReadInt();
-                }
-                catch
-                {
-                    stacks = -1;
-                }
+                // -1 reads as "could not tell" in the console output, which is honest and
+                // distinguishable from a chest that really is empty.
+                var stacks = Logic.InventoryPayload.TryReadHeader(pair.Value.Contents, out var header)
+                    ? header.Count
+                    : -1;
 
                 yield return (pair.Key, stacks);
             }

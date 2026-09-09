@@ -261,11 +261,67 @@ namespace BottomlessChest.Core
             var adopted = _container.m_inventory.NrOfItems();
             Plugin.Log.LogInfo($"Adopted {adopted} item stack(s) from the ZDO into chest store {storeId}.");
 
-            var package = new ZPackage();
-            _container.m_inventory.Save(package);
-            SidecarStore.Instance.Put(storeId, package.GetArray());
+            var payload = Serialize(_container.m_inventory, storeId);
+            if (payload == null)
+            {
+                // The ZDO still holds the items, so nothing is lost by not adopting them.
+                return false;
+            }
+
+            SidecarStore.Instance.Put(storeId, payload);
 
             return true;
+        }
+
+        /// <summary>
+        /// Serializes an inventory, refusing to return bytes that misdescribe it.
+        /// </summary>
+        /// <returns>The payload, or null if it could not be trusted.</returns>
+        /// <remarks>
+        /// Valheim 1.0 writes the stack count as a <c>ushort</c>, so an inventory past
+        /// 65,535 stacks serializes with a count that has wrapped. Nothing throws: the
+        /// items are all in the buffer, the header just says there are fewer, and the next
+        /// load stops early and drops the rest. Written back, that is permanent.
+        ///
+        /// Rather than trust a version number, this reads its own output back and checks
+        /// the header describes what went in. That catches this truncation and any future
+        /// one, and it fails the way the rest of this class fails - refusing to write, so
+        /// the previous contents survive on disk. Refusing costs a session's edits; saving
+        /// a payload that reads back short costs the chest.
+        ///
+        /// Lifting the ceiling properly means writing the count ourselves and reading items
+        /// back without the game's help. That is a new load path, and it cannot be exercised
+        /// until Jotunn has a 1.0 build - see docs/valheim-1.0-compatibility.md.
+        /// </remarks>
+        private static byte[] Serialize(Inventory inventory, string storeId)
+        {
+            var package = new ZPackage();
+            inventory.Save(package);
+            var bytes = package.GetArray();
+
+            var expected = inventory.m_inventory.Count;
+
+            if (!Logic.InventoryPayload.TryReadHeader(bytes, out var header))
+            {
+                Plugin.Log.LogError(
+                    $"Refusing to save chest {storeId}: the game produced {bytes.Length} bytes " +
+                    "this build cannot read back. Its save format has probably changed.");
+
+                return null;
+            }
+
+            if (header.Count != expected)
+            {
+                Plugin.Log.LogError(
+                    $"Refusing to save chest {storeId}: it holds {expected} stacks but the " +
+                    $"serialized form says {header.Count}, so loading it would silently drop " +
+                    $"{expected - header.Count}. The game's save format caps the count at " +
+                    $"{ushort.MaxValue}. The chest's stored contents are untouched.");
+
+                return null;
+            }
+
+            return bytes;
         }
 
         /// <summary>Serializes the live inventory into the store. Called instead of Container.Save.</summary>
@@ -334,9 +390,13 @@ namespace BottomlessChest.Core
                 InventoryCapacity.Apply(_container.m_inventory);
             }
 
-            var package = new ZPackage();
-            _container.m_inventory.Save(package);
-            SidecarStore.Instance.Put(storeId, package.GetArray());
+            var payload = Serialize(_container.m_inventory, storeId);
+            if (payload == null)
+            {
+                return;
+            }
+
+            SidecarStore.Instance.Put(storeId, payload);
         }
 
         /// <summary>
@@ -346,24 +406,8 @@ namespace BottomlessChest.Core
         /// The grid has to be big enough before Load runs, and Load is the only thing that
         /// knows how many items there are - so the header is peeked first.
         /// </remarks>
-        private static int PeekItemCount(byte[] contents)
-        {
-            if (contents == null || contents.Length < 8)
-            {
-                return 0;
-            }
-
-            try
-            {
-                var package = new ZPackage(contents);
-                package.ReadInt();
-                return package.ReadInt();
-            }
-            catch
-            {
-                return 0;
-            }
-        }
+        private static int PeekItemCount(byte[] contents) =>
+            Logic.InventoryPayload.TryReadHeader(contents, out var header) ? header.Count : 0;
 
         /// <summary>Loads a serialized inventory without losing items to grid capacity.</summary>
         private void LoadIntoInventory(byte[] contents)
