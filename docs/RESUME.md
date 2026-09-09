@@ -82,9 +82,14 @@ in practice as well as in principle.
       `EnableTestingCommands` is back to `false` on client and server, so the run exercises
       what a player actually installs. The dev values are saved beside each config as
       `.bak-dev-settings`.
-- [ ] Package with `scripts/package.sh` and upload. **Not done, and not to be done without
-      being asked** - Thunderstore versions are immutable.
-- [x] **Tag the release commit.**
+- [x] Package built: `dist/BottomlessChest-0.2.0.zip`. Verified - zip intact, seven entries,
+      icon 256x256, manifest 0.2.0 against BepInEx 5.4.2350 and Jotunn 2.30.0, and the
+      shipping DLL carries all four never-change identifiers and no trace of "0.1.0".
+- [ ] Upload to Thunderstore. **Not done, and not to be done without being asked** -
+      versions are immutable.
+- [ ] **Tag the release commit** - last, after the run above passes, so the tag does not
+      have to move if it finds something. 0.1.0 shipped untagged and had to be
+      reconstructed; that is the mistake this is avoiding.
 - [x] Re-run the upgrade diff. Clean: the four never-change identifiers are intact and the
       read path only gained candidates.
 
