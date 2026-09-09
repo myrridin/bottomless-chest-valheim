@@ -40,6 +40,17 @@ namespace BottomlessChest.Core
 
             if (SidecarStore.Instance.TryGet(storeId, out var contents) && contents != null && contents.Length > 0)
             {
+                // Size the grid before loading. A payload that routes to the game's own
+                // loader goes through Inventory.AddItem, which silently refuses everything
+                // past m_width * m_height - eight slots, as constructed. The chest would
+                // then load short, fail the count check below, and never open again.
+                // BottomlessContainer.LoadIntoInventory has always done this; the session
+                // path did not.
+                if (Logic.InventoryPayload.TryReadHeader(contents, out var header))
+                {
+                    InventoryCapacity.ApplyFor(inventory, header.Count);
+                }
+
                 if (!InventorySerializer.Load(inventory, contents, out var expected)
                     || inventory.m_inventory.Count != expected)
                 {

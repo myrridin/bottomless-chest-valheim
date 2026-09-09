@@ -167,9 +167,10 @@ Ordered by what unblocks what. Nothing here is started.
 4. ~~**Store path resolution, read-path-grows.**~~ **Done.** `StoreLocations` in
    `BottomlessChest.Logic`, 16 tests. Reads try the per-world directory then the flat
    location, in both the world's own storage and the local fallback; a candidate that will
-   not read falls through, so a half-written file cannot hide a good one. Writes follow the
-   layout `World.GetSavePaths()` reports, defaulting to Flat when unsure — the safe way to
-   be wrong, since the read candidates cover it. The old file is left in place as a backup.
+   not read falls through, and candidates are ordered by write time so a well-formed stale
+   copy cannot shadow a newer one. **Writes always go to the worlds folder, never inside the
+   per-world directory** — Valheim prunes unrecognised files from there, so a world backup or
+   restore would delete every chest in the world. Upgrading therefore moves nothing at all.
    The standing rule is pinned as a test: every path 0.1.0 read is still searched.
 5. ~~**Fix the count.**~~ **Done.** The stack count is written by this mod; the items stay
    the game's, byte for byte. `InventoryPayload` handles all three header shapes and is

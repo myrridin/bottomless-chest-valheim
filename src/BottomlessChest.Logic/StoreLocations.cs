@@ -67,8 +67,9 @@ namespace BottomlessChest.Logic
         /// <summary>Appended to the world name. Unchanged since 0.1.0 and must stay so.</summary>
         public const string Extension = ".bottomless.dat";
 
-        // Two generations, matching what Flush rotates. One was very nearly not enough:
-        // a single bad save rotates the only good copy into ".old", and the next destroys it.
+        // The live file and two backup generations, matching what Flush rotates. One
+        // generation was very nearly not enough: a single bad save rotates the only good
+        // copy into ".old", and the save after that destroys it.
         private static readonly string[] Generations = { "", ".old", ".old2" };
 
         /// <summary>

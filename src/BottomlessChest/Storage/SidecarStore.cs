@@ -436,6 +436,21 @@ namespace BottomlessChest.Storage
                 FileHelpers.EnsureDirectoryExists(save);
 
                 writer = new FileWriter(pending, SaveGrouping, FileHelpers.FileHelperType.Binary, source);
+
+                // 1.0's FileWriter no longer throws when it cannot open: it returns with
+                // m_binary null and the reason in Status. Writing to that null is an
+                // NullReferenceException whose message says nothing about the real problem,
+                // and this is a log someone reads while wondering where a chest went.
+                if (writer.Status != FileWriter.WriterStatus.OpenSucceeded || writer.m_binary == null)
+                {
+                    Plugin.Log.LogError(
+                        $"Could not open '{pending}' for writing ({writer.Status}). The chest " +
+                        "store was not saved; the previous file is untouched and the write " +
+                        "will be retried.");
+
+                    return;
+                }
+
                 var binary = writer.m_binary;
 
                 binary.Write(Magic);

@@ -643,11 +643,16 @@ namespace BottomlessChest.Filter
             var scratch = new Inventory("offer", null, Width, 64);
             scratch.m_inventory.AddRange(offered);
 
-            var package = new ZPackage();
-            scratch.Save(package);
+            // Wrapped so the server reads it back with a direct add - see
+            // ChestRpc.Serialize for why Inventory.AddItem is not safe for these.
+            var payload = Storage.InventorySerializer.Save(scratch, "stack-all offer");
+            if (payload == null)
+            {
+                return false;
+            }
 
             Offers[storeId] = new PendingOffer { Items = offered, SentAt = Time.realtimeSinceStartup };
-            Net.ChestRpc.StackAll(storeId, package.GetArray());
+            Net.ChestRpc.StackAll(storeId, payload);
             return true;
         }
 
@@ -739,12 +744,17 @@ namespace BottomlessChest.Filter
             var scratch = new Inventory("put", null, Width, 1);
             scratch.m_inventory.Add(item);
 
-            var package = new ZPackage();
-            scratch.Save(package);
+            // Wrapped so the server reads it back with a direct add - see
+            // ChestRpc.Serialize for why Inventory.AddItem is not safe for these.
+            var payload = Storage.InventorySerializer.Save(scratch, "deposit");
+            if (payload == null)
+            {
+                return false;
+            }
 
             _pendingPut = item;
             _pendingPutSentAt = Time.realtimeSinceStartup;
-            Net.ChestRpc.Put(_remoteStoreId, package.GetArray());
+            Net.ChestRpc.Put(_remoteStoreId, payload);
             return true;
         }
 

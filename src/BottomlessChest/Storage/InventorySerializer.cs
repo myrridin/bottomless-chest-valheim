@@ -124,9 +124,17 @@ namespace BottomlessChest.Storage
             if (!InventoryPayload.TryReadHeader(contents, out var header))
             {
                 // Not a shape we recognise. The game's loader is more likely to be right
-                // about its own format than we are - but if it cannot read it either, we
-                // never learn how many stacks were in there.
-                return LoadWithGame(inventory, contents);
+                // about its own format than we are.
+                if (!LoadWithGame(inventory, contents))
+                {
+                    return false;
+                }
+
+                // It read: whatever arrived is the whole of it. Leaving expected at zero
+                // would have the caller compare 47 loaded against 0 expected, call that a
+                // partial load, and refuse to save the chest ever again.
+                expected = inventory.m_inventory.Count;
+                return true;
             }
 
             expected = header.Count;

@@ -508,6 +508,13 @@ namespace BottomlessChest.Core
             finally
             {
                 _container.m_loading = false;
+
+                // Leaking this leaves it true for the life of the process, which makes
+                // SaveToStore's headroom top-up a no-op and disables the capacity hook. The
+                // symptom is another mod's deposits vanishing into a full grid - the exact
+                // thing that top-up exists to prevent. The other two load paths already
+                // reset it; this one did not.
+                InventoryCapacity.Suspended = false;
             }
         }
     }

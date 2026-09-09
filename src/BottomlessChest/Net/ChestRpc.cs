@@ -417,9 +417,14 @@ namespace BottomlessChest.Net
             var scratch = new Inventory("page", null, Filter.ChestView.Width, Filter.ChestView.VisibleRows);
             scratch.m_inventory.AddRange(items);
 
-            var package = new ZPackage();
-            scratch.Save(package);
-            return package.GetArray();
+            // Wrapped, like everything else we write, so the other end reads it back with a
+            // direct add rather than through Inventory.AddItem. AddItem places items by grid
+            // position, and 1.0 stores grid positions as bytes - so y wraps at 256 and an
+            // 8-wide chest has only 2048 distinct slots. Two stacks of one item from far
+            // apart in a big chest can land on a page sharing a position, and AddItem would
+            // merge them into one. On a Granted reply that is items the server has already
+            // removed and will never send again.
+            return Storage.InventorySerializer.Save(scratch, "page") ?? new byte[0];
         }
 
         /// <summary>
