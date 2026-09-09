@@ -51,13 +51,18 @@ namespace BottomlessChest.Net
             ToServer(package);
         }
 
-        internal static void RequestPage(string storeId, string query, int scrollRow)
+        /// <summary>
+        /// Asks for a page. <paramref name="requestId"/> comes back on the reply so the
+        /// client can tell a current answer from a superseded one.
+        /// </summary>
+        internal static void RequestPage(string storeId, string query, int scrollRow, int requestId)
         {
             var package = new ZPackage();
             package.Write((int)ChestMessage.Page);
             package.Write(storeId);
             package.Write(query ?? string.Empty);
             package.Write(scrollRow);
+            package.Write(requestId);
             ToServer(package);
         }
 
@@ -154,12 +159,13 @@ namespace BottomlessChest.Net
                 {
                     var query = package.ReadString();
                     var scrollRow = package.ReadInt();
+                    var requestId = package.ReadInt();
 
                     var session = ChestSessions.Acquire(storeId);
                     if (session != null)
                     {
                         session.SetQuery(query);
-                        SendPage(sender, session, scrollRow);
+                        SendPage(sender, session, scrollRow, requestId);
                     }
 
                     break;
@@ -418,7 +424,7 @@ namespace BottomlessChest.Net
         }
 
         /// <summary>Sends one window of items. A negative row means "keep the current one".</summary>
-        private static void SendPage(long peer, ChestSession session, int scrollRow)
+        private static void SendPage(long peer, ChestSession session, int scrollRow, int requestId = 0)
         {
             var requested = scrollRow < 0 ? session.LastScrollRow : scrollRow;
             var page = session.Page(requested, Filter.ChestView.PageSlots);
@@ -436,6 +442,7 @@ namespace BottomlessChest.Net
             reply.Write(session.MatchCount);
             reply.Write(session.TotalWeight);
             reply.Write(row);
+            reply.Write(requestId);
             reply.Write(Serialize(page));
 
             _rpc.SendPackage(peer, reply);
@@ -528,9 +535,11 @@ namespace BottomlessChest.Net
                     var matches = package.ReadInt();
                     var weight = package.ReadSingle();
                     var scrollRow = package.ReadInt();
+                    var requestId = package.ReadInt();
                     var items = Deserialize(package.ReadByteArray());
 
-                    Filter.ChestView.ApplyPage(storeId, version, total, matches, weight, scrollRow, items);
+                    Filter.ChestView.ApplyPage(
+                        storeId, version, total, matches, weight, scrollRow, requestId, items);
                     break;
                 }
 

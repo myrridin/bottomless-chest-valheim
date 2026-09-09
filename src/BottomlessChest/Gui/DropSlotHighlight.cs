@@ -1,24 +1,39 @@
 using BottomlessChest.Filter;
 using HarmonyLib;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace BottomlessChest.Gui
 {
     /// <summary>
-    /// Marks the reserved slot at the end of a page so it reads as a drop target.
+    /// Marks the slot kept free at the end of the window so it reads as a drop target.
     /// </summary>
     /// <remarks>
-    /// A paged chest always keeps its final slot free, otherwise there would be nowhere to
-    /// drop anything into a full chest. Left unmarked that gap looks like an accident, so
-    /// it is tinted to say it is deliberate.
+    /// A bottomless chest always keeps its last visible slot free, otherwise there would be
+    /// nowhere to drop anything into a chest whose window is full. Unmarked, that gap looks
+    /// like an accident rather than an invitation.
     ///
-    /// Works on the grid's child objects rather than InventoryGrid.Element, which is a
-    /// private nested type. Children are created row-major, so the child index is the slot.
+    /// Valheim 1.0 gave every slot a <c>m_dropFocus</c> overlay for exactly this idea, and
+    /// then only drives it on touch devices:
+    ///
+    ///     if (ZInput.IsTouchActive())
+    ///         element.m_dropFocus.color = (!element.m_used || element.m_canBeDroppedOn) ? ... ;
+    ///
+    /// On mouse and keyboard it is set to <c>Color.clear</c> in Awake and never touched
+    /// again. So it is an unused overlay, already positioned over the slot and already the
+    /// shape players associate with "you can drop here" - which makes it the right thing to
+    /// borrow, and means nothing fights us for it.
+    ///
+    /// Its designed colour is cached as <c>DropFocusOriginalColor</c> before Awake blanks
+    /// it, so using that keeps the marker looking like part of the game rather than like a
+    /// mod tinting a square.
+    ///
+    /// This replaces tinting the element's background image, which had to guess at the
+    /// slot's own colour to restore it, and only ever ran for paged chests.
     /// </remarks>
     internal static class DropSlotHighlight
     {
-        private static readonly Color DropTint = new Color(0.65f, 0.85f, 0.55f, 0.55f);
+        /// <summary>Used only if the prefab's own drop colour is fully transparent.</summary>
+        private static readonly Color Fallback = new Color(0.65f, 0.85f, 0.55f, 0.55f);
 
         [HarmonyPatch(typeof(InventoryGrid), "UpdateGui")]
         private static class Patch
@@ -26,29 +41,39 @@ namespace BottomlessChest.Gui
             private static void Postfix(InventoryGrid __instance)
             {
                 var root = __instance.m_gridRoot;
-                if (root == null)
+                if (root == null || Plugin.Degraded)
                 {
                     return;
                 }
 
-                var isPagedChest = ChestView.IsRemote
-                                   && ReferenceEquals(__instance.m_inventory, ChestView.TargetInventory);
+                // On touch the game drives this overlay itself, and its answer - every empty
+                // slot glows while dragging - is a better one than ours. Leave it alone.
+                if (ZInput.IsTouchActive())
+                {
+                    return;
+                }
 
-                // The reserved slot sits immediately after the items the page carries.
-                var dropSlot = isPagedChest ? __instance.m_inventory.m_inventory.Count : -1;
+                var isChestView = ReferenceEquals(__instance.m_inventory, ChestView.TargetInventory);
+                var dropSlot = isChestView ? ChestView.DropSlotIndex : -1;
 
                 for (var i = 0; i < root.childCount; i++)
                 {
-                    var image = root.GetChild(i).GetComponent<Image>();
-                    if (image == null)
+                    var element = root.GetChild(i).GetComponent<InventoryElement>();
+                    if (element == null || element.m_dropFocus == null)
                     {
                         continue;
                     }
 
-                    // Always written, not just when tinting: these elements are reused for
-                    // ordinary containers too, and a stale tint would follow them there.
-                    image.color = i == dropSlot ? DropTint : Color.white;
+                    // Cleared as well as set: these elements are pooled and reused for
+                    // ordinary containers, and a marker left behind would follow them there.
+                    element.m_dropFocus.color = i == dropSlot ? DropColour(element) : Color.clear;
                 }
+            }
+
+            private static Color DropColour(InventoryElement element)
+            {
+                var designed = element.DropFocusOriginalColor;
+                return designed.a > 0f ? designed : Fallback;
             }
         }
     }

@@ -102,6 +102,35 @@ namespace BottomlessChest.Filter
         /// <summary>The inventory currently being displayed, for identity checks.</summary>
         internal static Inventory TargetInventory => _target;
 
+        /// <summary>
+        /// The grid slot deliberately left free as a drop target, or -1 if none is visible.
+        /// </summary>
+        /// <remarks>
+        /// A chest that filled its window edge to edge would have nowhere to drop anything,
+        /// so the slot immediately after the last drawn item is kept clear. Where that slot
+        /// is depends on how the view is being fed: a paged chest holds exactly what is on
+        /// screen, while a local one holds everything and parks the rest below the window.
+        /// Both answers are the same question, so callers should not have to know which.
+        ///
+        /// -1 when the window is full, because then there is no free slot to point at.
+        /// </remarks>
+        internal static int DropSlotIndex
+        {
+            get
+            {
+                if (_target == null)
+                {
+                    return -1;
+                }
+
+                var drawn = _remote
+                    ? _target.m_inventory.Count
+                    : Mathf.Max(0, _windowEnd - _windowStart);
+
+                return drawn < WindowSlots ? drawn : -1;
+            }
+        }
+
         internal static long Version => _version;
 
         internal static int ScrollRow => _scrollRow;
@@ -212,6 +241,10 @@ namespace BottomlessChest.Filter
             var previous = _target;
             _remote = false;
             _awaitingPage = false;
+
+            // A search still settling when the chest closed has nothing left to ask about.
+            _queryDirtyAt = -1f;
+            _pageRequestPending = false;
             _remoteStoreId = null;
             _owner = null;
             _target = null;
@@ -235,8 +268,13 @@ namespace BottomlessChest.Filter
             {
                 _query = query ?? string.Empty;
                 _scrollRow = 0;
+
+                // Deliberately not sent here. Every keystroke used to fire its own request,
+                // each one filtering the whole chest server-side - typing "arrow" cost five
+                // full passes over a million stacks and repainted the grid five times on the
+                // way. Tick sends one once the typing stops.
+                _queryDirtyAt = Time.realtimeSinceStartup;
                 _awaitingPage = true;
-                Net.ChestRpc.RequestPage(_remoteStoreId, _query, 0);
                 return;
             }
 
@@ -302,13 +340,30 @@ namespace BottomlessChest.Filter
             _pageRequestPending = false;
             _lastPageRequestAt = now;
             _awaitingPage = true;
-            Net.ChestRpc.RequestPage(_remoteStoreId, _query, _scrollRow);
+            _newestSentRequestId = ++_requestId;
+            Net.ChestRpc.RequestPage(_remoteStoreId, _query, _scrollRow, _newestSentRequestId);
         }
 
         /// <summary>Flushes a throttled request once the interval has passed.</summary>
         internal static void Tick()
         {
-            if (_remote && _pageRequestPending)
+            if (!_remote)
+            {
+                return;
+            }
+
+            // A search is worth waiting for: the reply costs a full pass over the chest, so
+            // sending one per keystroke wastes most of them. Scrolling keeps its own much
+            // shorter throttle, because there the previous answer is still worth having.
+            if (_queryDirtyAt >= 0f && Time.realtimeSinceStartup - _queryDirtyAt >= QuerySettleDelay)
+            {
+                _queryDirtyAt = -1f;
+                _lastPageRequestAt = 0f;
+                RequestPageThrottled();
+                return;
+            }
+
+            if (_pageRequestPending)
             {
                 RequestPageThrottled();
             }
@@ -457,10 +512,23 @@ namespace BottomlessChest.Filter
         /// <summary>Accepts a window of items sent by the server.</summary>
         internal static void ApplyPage(
             string storeId, long version, int total, int matches, float weight, int scrollRow,
-            List<ItemDrop.ItemData> items)
+            int requestId, List<ItemDrop.ItemData> items)
         {
             if (!_remote || _target == null || storeId != _remoteStoreId)
             {
+                return;
+            }
+
+            // A reply older than the newest request is an answer to a question that has
+            // already been replaced. Painting it puts the wrong results on screen, and
+            // because replies can overtake each other it could be the last thing painted -
+            // so this is not just about flicker. Requests carry an id purely so this
+            // comparison is possible; nothing else uses it.
+            if (requestId != 0 && requestId < _newestSentRequestId)
+            {
+                Plugin.Log.LogDebug(
+                    $"Ignoring page for request {requestId}; {_newestSentRequestId} is current.");
+
                 return;
             }
 
@@ -581,6 +649,13 @@ namespace BottomlessChest.Filter
         private static float _lastPageRequestAt;
         private static bool _pageRequestPending;
 
+        /// <summary>When the query last changed, or -1 when there is nothing to send.</summary>
+        private static float _queryDirtyAt = -1f;
+
+        /// <summary>Identifies the newest request, so older replies can be discarded.</summary>
+        private static int _requestId;
+        private static int _newestSentRequestId;
+
         /// <summary>
         /// Shortest gap between page requests while scrolling.
         /// </summary>
@@ -590,6 +665,16 @@ namespace BottomlessChest.Filter
         /// immediately; only the fetching is rationed.
         /// </remarks>
         private const float PageRequestInterval = 0.08f;
+
+        /// <summary>
+        /// How long typing has to stop before the search is sent.
+        /// </summary>
+        /// <remarks>
+        /// Long enough to swallow a burst of typing, short enough not to feel laggy. The
+        /// scroll throttle is far shorter because scrolling wants to keep up; a search wants
+        /// to wait until you have finished saying what you are looking for.
+        /// </remarks>
+        private const float QuerySettleDelay = 0.25f;
 
         /// <summary>True while a scroll has outrun the last page request.</summary>
         internal static bool PageRequestPending => _pageRequestPending;
