@@ -11,9 +11,10 @@ been observed running — the mod cannot load on 1.0 yet (see Blocked).
 | Old | 0.221.12 (buildid 21981590) | 2,119,680 bytes |
 | New | 1.0 (buildid 25185596) | 2,566,144 bytes |
 
-The old assemblies survive on the dedicated server install, which Steam has **not** yet
-updated. That is the diff baseline, and it disappears the moment the server updates — keep
-a copy before updating it.
+The dedicated server held the last copy of the old build. It has since updated to 1.0
+(buildid 25185644), so the diff baseline now exists only at
+`/mnt/c/valheim_mods/valheim-0.221-assemblies/`, which holds both assemblies and both
+decompiles.
 
 ## Blocked: we cannot test on 1.0 yet
 
@@ -21,8 +22,8 @@ a copy before updating it.
   Until one exists the plugin does not load at all, so nothing below can be confirmed in-game.
 - **ValheimPlus** newest is 0.9.17.1 (February), targeting 0.221.10. Community reports say
   1.0 broke it badly — UI, camera and inventory. No 1.0 build.
-- **The dedicated server is still on 21981590** with an update pending. A 1.0 client cannot
-  connect to it, so dedicated-server testing is blocked on that update too.
+- **The dedicated server is on 1.0** (buildid 25185644, updated 2026-09-09), so it is ready
+  as soon as the client side can load.
 
 This is launch-day state and should be re-checked before planning around it.
 
