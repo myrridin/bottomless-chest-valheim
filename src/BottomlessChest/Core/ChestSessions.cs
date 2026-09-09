@@ -40,10 +40,7 @@ namespace BottomlessChest.Core
 
             if (SidecarStore.Instance.TryGet(storeId, out var contents) && contents != null && contents.Length > 0)
             {
-                if (!FastInventoryReader.TryLoad(inventory, contents, out _))
-                {
-                    inventory.Load(new ZPackage(contents));
-                }
+                InventorySerializer.Load(inventory, contents, out _);
             }
 
             var session = new ChestSession(storeId, inventory);
@@ -76,9 +73,17 @@ namespace BottomlessChest.Core
                 return;
             }
 
-            var package = new ZPackage();
-            session.Inventory.Save(package);
-            SidecarStore.Instance.Put(session.StoreId, package.GetArray());
+            // Same door as BottomlessContainer.SaveToStore. This is the dedicated-server
+            // write path, and it was writing raw Inventory.Save straight into the store -
+            // a different format from the other writer, with no count check, into the same
+            // file.
+            var payload = InventorySerializer.Save(session.Inventory, session.StoreId);
+            if (payload == null)
+            {
+                return;
+            }
+
+            SidecarStore.Instance.Put(session.StoreId, payload);
         }
 
         /// <summary>

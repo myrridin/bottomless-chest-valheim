@@ -171,6 +171,57 @@ namespace BottomlessChest.Logic
         }
 
         /// <summary>
+        /// Rebuilds the payload the game originally produced, undoing <see cref="Wrap"/>.
+        /// </summary>
+        /// <returns>
+        /// False when the count cannot be expressed in the game's own header, which is
+        /// exactly the case this format exists to carry. The caller must then read the
+        /// items itself.
+        /// </returns>
+        /// <remarks>
+        /// This is the escape hatch for item encodings we cannot walk. Rather than teach
+        /// this mod every historical item layout, hand the bytes back in the shape the game
+        /// wrote them and let the game's own loader deal with it.
+        /// </remarks>
+        public static bool TryUnwrapToVanilla(byte[] wrapped, out byte[] vanilla)
+        {
+            vanilla = null;
+
+            if (!TryReadHeader(wrapped, out var header) || header.Format != PayloadFormat.Bottomless)
+            {
+                return false;
+            }
+
+            var countIsUShort = header.ItemVersion >= FirstUShortCountVersion;
+
+            if (countIsUShort && header.Count > ushort.MaxValue)
+            {
+                return false;
+            }
+
+            var itemBytes = wrapped.Length - header.ItemsOffset;
+            var countWidth = countIsUShort ? 2 : 4;
+
+            vanilla = new byte[4 + countWidth + itemBytes];
+
+            WriteInt(vanilla, 0, header.ItemVersion);
+
+            if (countIsUShort)
+            {
+                vanilla[4] = (byte)header.Count;
+                vanilla[5] = (byte)(header.Count >> 8);
+            }
+            else
+            {
+                WriteInt(vanilla, 4, header.Count);
+            }
+
+            Buffer.BlockCopy(wrapped, header.ItemsOffset, vanilla, 4 + countWidth, itemBytes);
+
+            return true;
+        }
+
+        /// <summary>
         /// A negative count would size a grid, and a grid too small drops items silently.
         /// </summary>
         private static bool Accept(PayloadFormat format, int version, int count, int offset, out PayloadHeader header)

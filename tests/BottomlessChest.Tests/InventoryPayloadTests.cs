@@ -113,6 +113,44 @@ namespace BottomlessChest.Tests
         }
 
         [Fact]
+        public void Hands_back_the_exact_bytes_the_game_gave_it()
+        {
+            // The way an item version this reader cannot walk is still loadable: undo the
+            // wrapping and let the game read its own format.
+            var original = Vanilla(109, 3, new byte[] { 7, 7, 7 });
+
+            Assert.True(InventoryPayload.TryUnwrapToVanilla(InventoryPayload.Wrap(original, 3), out var restored));
+            Assert.Equal(original, restored);
+        }
+
+        [Fact]
+        public void Hands_back_a_pre_1_0_payload_unchanged_too()
+        {
+            var original = Vanilla(106, 90_000, new byte[] { 1, 2 });
+
+            Assert.True(InventoryPayload.TryUnwrapToVanilla(InventoryPayload.Wrap(original, 90_000), out var restored));
+            Assert.Equal(original, restored);
+        }
+
+        [Fact]
+        public void Will_not_unwrap_a_count_the_games_own_format_cannot_hold()
+        {
+            // 1.0 counts in a ushort, so there is no honest way to express this as a
+            // vanilla payload. Saying so beats handing back a truncated one.
+            var wrapped = InventoryPayload.Wrap(Vanilla(109, 70_000), 70_000);
+
+            Assert.False(InventoryPayload.TryUnwrapToVanilla(wrapped, out var restored));
+            Assert.Null(restored);
+        }
+
+        [Fact]
+        public void Will_not_unwrap_something_that_was_never_wrapped()
+        {
+            Assert.False(InventoryPayload.TryUnwrapToVanilla(Vanilla(109, 3), out _));
+            Assert.False(InventoryPayload.TryUnwrapToVanilla(null, out _));
+        }
+
+        [Fact]
         public void Refuses_a_payload_whose_leading_value_is_not_a_format_it_knows()
         {
             Assert.False(InventoryPayload.TryReadHeader(Vanilla(4242, 1), out var header));

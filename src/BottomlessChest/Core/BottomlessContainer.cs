@@ -261,7 +261,7 @@ namespace BottomlessChest.Core
             var adopted = _container.m_inventory.NrOfItems();
             Plugin.Log.LogInfo($"Adopted {adopted} item stack(s) from the ZDO into chest store {storeId}.");
 
-            var payload = Serialize(_container.m_inventory, storeId);
+            var payload = Storage.InventorySerializer.Save(_container.m_inventory, storeId);
             if (payload == null)
             {
                 // The ZDO still holds the items, so nothing is lost by not adopting them.
@@ -271,57 +271,6 @@ namespace BottomlessChest.Core
             SidecarStore.Instance.Put(storeId, payload);
 
             return true;
-        }
-
-        /// <summary>
-        /// Serializes an inventory, refusing to return bytes that misdescribe it.
-        /// </summary>
-        /// <returns>The payload, or null if it could not be trusted.</returns>
-        /// <remarks>
-        /// Valheim 1.0 writes the stack count as a <c>ushort</c>, so an inventory past
-        /// 65,535 stacks serializes with a count that has wrapped. Nothing throws: the
-        /// items are all in the buffer, the header just says there are fewer, and the next
-        /// load stops early and drops the rest. Written back, that is permanent.
-        ///
-        /// Rather than trust a version number, this reads its own output back and checks
-        /// the header describes what went in. That catches this truncation and any future
-        /// one, and it fails the way the rest of this class fails - refusing to write, so
-        /// the previous contents survive on disk. Refusing costs a session's edits; saving
-        /// a payload that reads back short costs the chest.
-        ///
-        /// Lifting the ceiling properly means writing the count ourselves and reading items
-        /// back without the game's help. That is a new load path, and it cannot be exercised
-        /// until Jotunn has a 1.0 build - see docs/valheim-1.0-compatibility.md.
-        /// </remarks>
-        private static byte[] Serialize(Inventory inventory, string storeId)
-        {
-            var package = new ZPackage();
-            inventory.Save(package);
-            var bytes = package.GetArray();
-
-            var expected = inventory.m_inventory.Count;
-
-            if (!Logic.InventoryPayload.TryReadHeader(bytes, out var header))
-            {
-                Plugin.Log.LogError(
-                    $"Refusing to save chest {storeId}: the game produced {bytes.Length} bytes " +
-                    "this build cannot read back. Its save format has probably changed.");
-
-                return null;
-            }
-
-            if (header.Count != expected)
-            {
-                Plugin.Log.LogError(
-                    $"Refusing to save chest {storeId}: it holds {expected} stacks but the " +
-                    $"serialized form says {header.Count}, so loading it would silently drop " +
-                    $"{expected - header.Count}. The game's save format caps the count at " +
-                    $"{ushort.MaxValue}. The chest's stored contents are untouched.");
-
-                return null;
-            }
-
-            return bytes;
         }
 
         /// <summary>Serializes the live inventory into the store. Called instead of Container.Save.</summary>
@@ -390,7 +339,7 @@ namespace BottomlessChest.Core
                 InventoryCapacity.Apply(_container.m_inventory);
             }
 
-            var payload = Serialize(_container.m_inventory, storeId);
+            var payload = Storage.InventorySerializer.Save(_container.m_inventory, storeId);
             if (payload == null)
             {
                 return;
@@ -420,21 +369,23 @@ namespace BottomlessChest.Core
             _container.m_inventory.RemoveAll();
             InventoryCapacity.ApplyFor(_container.m_inventory, expected);
 
-            if (!Storage.FastInventoryReader.TryLoad(_container.m_inventory, contents, out expected))
-            {
-                _container.m_inventory.Load(new ZPackage(contents));
-            }
+            Storage.InventorySerializer.Load(_container.m_inventory, contents, out expected);
 
             var actual = _container.m_inventory.m_inventory.Count;
             _loadWasPartial = actual != expected;
 
             if (_loadWasPartial)
             {
-                // Loud, because the failure mode is silent: AddItem drops what will not fit
-                // and reports nothing, so the chest simply looks emptier than it is.
+                // Loud, because the failure mode is silent: the chest simply looks emptier
+                // than it is. Two things cause it - a grid too small, where AddItem drops
+                // what will not fit and reports nothing, or a payload that could not be
+                // read to the end. The serializer logs the second, so both are named here
+                // rather than blaming the grid for something it did not do.
                 Plugin.Log.LogError(
-                    $"Loaded {actual} of {expected} stacks - {expected - actual} were dropped " +
-                    $"because the grid was too small ({_container.m_inventory.m_width}x{_container.m_inventory.m_height}).");
+                    $"Loaded {actual} of {expected} stacks - {expected - actual} missing. " +
+                    $"Either the grid was too small ({_container.m_inventory.m_width}x" +
+                    $"{_container.m_inventory.m_height}) or the store could not be read to " +
+                    "the end; any read error is logged above. This chest will refuse to save.");
             }
         }
 

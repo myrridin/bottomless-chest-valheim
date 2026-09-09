@@ -416,9 +416,9 @@ namespace BottomlessChest.Net
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, 4096);
 
-            if (bytes != null && bytes.Length > 0 && !FastInventoryReader.TryLoad(scratch, bytes, out _))
+            if (bytes != null && bytes.Length > 0)
             {
-                scratch.Load(new ZPackage(bytes));
+                InventorySerializer.Load(scratch, bytes, out _);
             }
 
             return new List<ItemDrop.ItemData>(scratch.m_inventory);
