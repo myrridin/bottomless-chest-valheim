@@ -175,6 +175,7 @@ namespace BottomlessChest.Core
                     if (Inventory.m_inventory.Remove(item))
                     {
                         taken.Add(item);
+                        Forget(item);
                     }
 
                     continue;
@@ -184,6 +185,9 @@ namespace BottomlessChest.Core
                 part.m_stack = amount;
                 item.m_stack -= amount;
                 taken.Add(part);
+
+                // It has room now, so it is where the next deposit of its kind should go.
+                Reopen(item);
             }
 
             if (taken.Count > 0)
@@ -194,6 +198,122 @@ namespace BottomlessChest.Core
             return taken;
         }
 
+        /// <summary>
+        /// Stacks with room left, one per kind of item.
+        /// </summary>
+        /// <remarks>
+        /// This is what makes consolidation affordable in a chest of any size. Once the
+        /// contents are collapsed there is at most one part-filled stack of each kind - every
+        /// other stack is full, by definition - so this dictionary is the size of the item
+        /// catalogue, not the size of the chest. A deposit is then a lookup rather than a
+        /// walk, and stays a lookup at ten million stacks.
+        /// </remarks>
+        private readonly Dictionary<string, ItemDrop.ItemData> _openStacks =
+            new Dictionary<string, ItemDrop.ItemData>(System.StringComparer.Ordinal);
+
+        private bool _consolidated;
+
+        /// <summary>What has to match for two stacks to be one stack.</summary>
+        internal static string StackKey(ItemDrop.ItemData item) => StackConsolidation.StackKey(item);
+
+        /// <summary>
+        /// Collapses every stack that can be collapsed, once, and indexes what is left open.
+        /// </summary>
+        /// <remarks>
+        /// Runs when the session opens, before any page has been sent, and never again -
+        /// after this, <see cref="Deposit"/> keeps the contents collapsed as they arrive.
+        /// Doing it here rather than lazily matters: it renumbers the contents, and a client
+        /// holding a page numbered the old way would take the wrong items. Opening is the one
+        /// moment when no page exists yet.
+        /// </remarks>
+        internal void Consolidate()
+        {
+            if (_consolidated)
+            {
+                return;
+            }
+
+            _consolidated = true;
+
+            if (!StackConsolidation.Collapse(Inventory, out var collapsed, _openStacks))
+            {
+                // Contents in memory can no longer be trusted, so this session stops writing
+                // and the store keeps what it already had.
+                ReadOnly = true;
+                return;
+            }
+
+            if (collapsed <= 0)
+            {
+                return;
+            }
+
+            Touch();
+            Plugin.Log.LogInfo(
+                $"Consolidated chest {StoreId}: {collapsed} part-stack(s) merged away, " +
+                $"{Inventory.m_inventory.Count} left.");
+        }
+
+        /// <summary>
+        /// Adds an item, collapsing it into stacks that have room before making a new one.
+        /// </summary>
+        /// <remarks>
+        /// The counterpart to <see cref="Consolidate"/>: that one collapses what is already
+        /// there, this one keeps it collapsed. Both directions matter, because a chest that
+        /// is tidied once and then fragmented again by every deposit is not tidy.
+        /// </remarks>
+        internal void Deposit(ItemDrop.ItemData item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            var max = item.m_shared.m_maxStackSize;
+            if (max <= 1)
+            {
+                Add(item);
+                return;
+            }
+
+            var key = StackKey(item);
+
+            if (_openStacks.TryGetValue(key, out var open) && !ReferenceEquals(open, item))
+            {
+                var moved = StackRules.MergeAmount(item.m_stack, open.m_stack, max);
+                open.m_stack += moved;
+                item.m_stack -= moved;
+
+                if (open.m_stack >= max)
+                {
+                    _openStacks.Remove(key);
+                }
+
+                if (item.m_stack <= 0)
+                {
+                    Touch();
+                    return;
+                }
+            }
+
+            Inventory.m_inventory.Add(item);
+            if (item.m_stack < max)
+            {
+                _openStacks[key] = item;
+            }
+
+            Touch();
+        }
+
+        /// <summary>
+        /// Adds an item as its own stack, merging nothing.
+        /// </summary>
+        /// <remarks>
+        /// The restore path uses this: when a reply cannot be sent, the items already removed
+        /// go back exactly as they were rather than being folded into something else.
+        /// Consolidation is given up rather than guessed at, so the index is dropped and
+        /// rebuilt the next time the chest is opened.
+        /// </remarks>
         internal void Add(ItemDrop.ItemData item)
         {
             if (item == null)
@@ -202,7 +322,45 @@ namespace BottomlessChest.Core
             }
 
             Inventory.m_inventory.Add(item);
+            _openStacks.Clear();
+            _consolidated = false;
             Touch();
+        }
+
+        /// <summary>Drops a stack from the open-stack index if it was the one held there.</summary>
+        private void Forget(ItemDrop.ItemData item)
+        {
+            var key = StackKey(item);
+            if (_openStacks.TryGetValue(key, out var open) && ReferenceEquals(open, item))
+            {
+                _openStacks.Remove(key);
+            }
+        }
+
+        /// <summary>
+        /// Records a stack that now has room, so the next deposit of its kind finds it.
+        /// </summary>
+        /// <remarks>
+        /// Indexes only; it deliberately does not merge. This runs from inside
+        /// <see cref="Take"/>, which is working through indices into a list it has already
+        /// fixed, and merging would move contents that a later index in the same request
+        /// still refers to. Taking part of a stack is meant to leave a remainder, so nothing
+        /// here is untidy; the rare case of a second part-stack of one kind is collapsed the
+        /// next time the chest is opened.
+        /// </remarks>
+        private void Reopen(ItemDrop.ItemData item)
+        {
+            var max = item.m_shared.m_maxStackSize;
+            if (max <= 1 || item.m_stack >= max)
+            {
+                return;
+            }
+
+            var key = StackKey(item);
+            if (!_openStacks.ContainsKey(key))
+            {
+                _openStacks[key] = item;
+            }
         }
 
         /// <summary>Applies the query and sort once per change, not once per request.</summary>

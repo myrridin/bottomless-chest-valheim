@@ -389,6 +389,25 @@ namespace BottomlessChest.Core
                     $"Either the grid was too small ({_container.m_inventory.m_width}x" +
                     $"{_container.m_inventory.m_height}) or the store could not be read to " +
                     "the end; any read error is logged above. This chest will refuse to save.");
+
+                // Deliberately not consolidated. A partial load never gets written back, and
+                // rewriting contents we already know are incomplete buys nothing while
+                // giving a later change somewhere else the chance to save them.
+                return;
+            }
+
+            if (!StackConsolidation.Collapse(_container.m_inventory, out var collapsed))
+            {
+                // Same door as a short load: refuse to save, so the store keeps what it had.
+                _loadWasPartial = true;
+                return;
+            }
+
+            if (collapsed > 0)
+            {
+                Plugin.Log.LogInfo(
+                    $"Consolidated {collapsed} part-stack(s) on load; " +
+                    $"{_container.m_inventory.m_inventory.Count} stack(s) left.");
             }
         }
 

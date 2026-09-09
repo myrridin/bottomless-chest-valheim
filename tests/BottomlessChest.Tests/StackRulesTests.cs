@@ -184,5 +184,52 @@ namespace BottomlessChest.Tests
         {
             Assert.Equal(0, StackRules.TakeAmount(10, 0));
         }
+
+        // MergeAmount decides how much of an incoming stack collapses into one already in
+        // the chest. It is the whole of the consolidation arithmetic; everything else is
+        // finding the stack to call it against.
+
+        [Fact]
+        public void MergeAmountFitsTheWholeIncomingStack()
+        {
+            Assert.Equal(10, StackRules.MergeAmount(10, 5, 50));
+        }
+
+        [Fact]
+        public void MergeAmountIsLimitedByTheRoomLeft()
+        {
+            Assert.Equal(5, StackRules.MergeAmount(60, 45, 50));
+        }
+
+        [Fact]
+        public void MergeAmountIntoAFullStackIsNothing()
+        {
+            Assert.Equal(0, StackRules.MergeAmount(10, 50, 50));
+        }
+
+        [Fact]
+        public void MergeAmountIntoAnOversizedStackIsNothing()
+        {
+            // UnlimitedStacks can leave a stack above the vanilla ceiling. Topping it up
+            // further would push it further out of spec, and the subtraction would go
+            // negative if room were not floored.
+            Assert.Equal(0, StackRules.MergeAmount(10, 80, 50));
+        }
+
+        [Fact]
+        public void MergeAmountNeverStacksTheUnstackable()
+        {
+            // Max stack size of one is how the game says "these do not combine" - armour,
+            // tools, anything carrying its own durability.
+            Assert.Equal(0, StackRules.MergeAmount(1, 0, 1));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-5)]
+        public void MergeAmountOfNothingIsNothing(int incoming)
+        {
+            Assert.Equal(0, StackRules.MergeAmount(incoming, 5, 50));
+        }
     }
 }

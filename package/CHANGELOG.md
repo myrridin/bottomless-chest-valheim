@@ -33,6 +33,25 @@ refuses to save and says so, leaving the stored contents alone.
 
 **Stores written by 0.2.0 cannot be read by 0.1.0.** Upgrading is safe; going back is not.
 
+### Stacks collapse on their own
+
+A bottomless chest never runs out of slots, so nothing ever pushed its contents to be tidy:
+every deposit landed as its own stack. Put wood in eight at a time and you got a chest full
+of eight-wood piles, which is not a storage problem - the chest is unbounded - but it is a
+finding problem, because the window shows stacks.
+
+Stacks of the same item now merge whenever it is free to do so: once when a chest is opened,
+and from then on as things are put in, including with ctrl-click and by dropping a stack
+straight onto a matching one. An existing chest collapses the first time you open it after
+upgrading.
+
+Items only merge when the game itself would call them the same thing - same item, quality,
+variant and world level - and stacks are never filled past the game's own limit. Anything
+the game does not stack, such as gear carrying its own durability, is left alone.
+
+Consolidation counts the items before and after and refuses to save if the two disagree, so
+a mistake here costs a session rather than a chest.
+
 ### Fixes that predate 1.0
 
 These have been in the mod since 0.1.0 and were only found while testing against a

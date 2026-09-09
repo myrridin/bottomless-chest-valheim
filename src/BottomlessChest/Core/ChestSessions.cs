@@ -72,6 +72,15 @@ namespace BottomlessChest.Core
             var session = new ChestSession(storeId, inventory) { ReadOnly = partial };
             Open[storeId] = session;
 
+            // Before any page is built, so the numbering a client is handed is the numbering
+            // it will still be holding. A read-only session is left alone: its contents are
+            // the ones we could not fully read, and they are never written back anyway.
+            if (!session.ReadOnly)
+            {
+                session.Consolidate();
+                Persist(session);
+            }
+
             Plugin.Log.LogDebug($"Opened session for chest {storeId} with {session.TotalCount} stacks.");
             return session;
         }

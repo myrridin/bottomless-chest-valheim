@@ -66,6 +66,31 @@ namespace BottomlessChest.Logic
         }
 
         /// <summary>
+        /// How much of an incoming stack collapses into one the chest already holds.
+        /// </summary>
+        /// <remarks>
+        /// The whole of the consolidation arithmetic. A ceiling of one means the game says
+        /// these do not combine - armour, tools, anything carrying durability - and an
+        /// existing stack already at or above the ceiling has no room, which is the case
+        /// UnlimitedStacks can produce and which would otherwise subtract into a negative.
+        /// </remarks>
+        public static int MergeAmount(int incoming, int targetStack, int maxStackSize)
+        {
+            if (incoming <= 0 || maxStackSize <= 1)
+            {
+                return 0;
+            }
+
+            var room = maxStackSize - targetStack;
+            if (room <= 0)
+            {
+                return 0;
+            }
+
+            return incoming < room ? incoming : room;
+        }
+
+        /// <summary>
         /// How much of a stack actually leaves the chest for a requested amount.
         /// </summary>
         /// <remarks>

@@ -273,7 +273,7 @@ namespace BottomlessChest.Net
 
                     foreach (var item in deposited)
                     {
-                        session.Add(item);
+                        session.Deposit(item);
                     }
 
                     ChestSessions.Persist(session);
@@ -365,19 +365,19 @@ namespace BottomlessChest.Net
                     var held = new HashSet<string>(System.StringComparer.Ordinal);
                     foreach (var item in session.Inventory.m_inventory)
                     {
-                        held.Add(StackKey(item));
+                        held.Add(Core.ChestSession.StackKey(item));
                     }
 
                     var kept = new List<int>();
                     for (var i = 0; i < offered.Count; i++)
                     {
                         var item = offered[i];
-                        if (item.m_shared.m_maxStackSize <= 1 || !held.Contains(StackKey(item)))
+                        if (item.m_shared.m_maxStackSize <= 1 || !held.Contains(Core.ChestSession.StackKey(item)))
                         {
                             continue;
                         }
 
-                        session.Add(item);
+                        session.Deposit(item);
                         kept.Add(i);
                     }
 
@@ -461,9 +461,6 @@ namespace BottomlessChest.Net
         }
 
         /// <summary>Identity for stacking: same item, same quality, same variant.</summary>
-        private static string StackKey(ItemDrop.ItemData item) =>
-            $"{item.m_shared.m_name}|{item.m_quality}|{item.m_variant}";
-
         private static byte[] Serialize(List<ItemDrop.ItemData> items)
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, Filter.ChestView.VisibleRows);
