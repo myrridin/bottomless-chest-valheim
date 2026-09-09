@@ -75,49 +75,45 @@ server that blocks the main thread long enough that everyone else sees their net
 indicator blink. The changelog says so plainly rather than implying the chest is unbounded
 in practice as well as in principle.
 
-## Still to do before shipping
+## Shipped as 0.2.0
 
-- [ ] One run at default log levels on the **client** (the server has been checked). Both
-      configs are now set for it: BepInEx logs at Info and above, and
-      `EnableTestingCommands` is back to `false` on client and server, so the run exercises
-      what a player actually installs. The dev values are saved beside each config as
-      `.bak-dev-settings`.
-- [x] Package built: `dist/BottomlessChest-0.2.0.zip`. Verified - zip intact, seven entries,
-      icon 256x256, manifest 0.2.0 against BepInEx 5.4.2350 and Jotunn 2.30.0, and the
-      shipping DLL carries all four never-change identifiers and no trace of "0.1.0".
-- [ ] Upload to Thunderstore. **Not done, and not to be done without being asked** -
-      versions are immutable.
-- [ ] **Tag the release commit** - last, after the run above passes, so the tag does not
-      have to move if it finds something. 0.1.0 shipped untagged and had to be
-      reconstructed; that is the mistake this is avoiding.
-- [x] Re-run the upgrade diff. Clean: the four never-change identifiers are intact and the
-      read path only gained candidates.
+Tagged `v0.2.0`. The release gate was run against `v0.1.0` first and passed:
 
-### What the default-log run is looking for
+- The four never-change identifiers are byte-identical to 0.1.0 - `bottomless_chest`,
+  `BottomlessChest_id`, `com.myrridin.bottomlesschest`, `0x424C4331`.
+- The store read path only grew. `FastInventoryReader` was replaced by
+  `InventorySerializer`, and `Still_looks_everywhere_0_1_0_looked` pins all five paths
+  0.1.0 read as a test, so a future reordering cannot quietly drop one.
+- One client run at default log levels produced exactly four lines from this mod - the
+  RPC, the version, the prefab, the piece - and no warnings or errors.
 
-`ScrollbarProbe` used to dump the container scrollbar's whole UI hierarchy at **Info** the
-first time anyone opened a bottomless chest - a wall of text in every player's log, from a
-probe with no consumer, because the scrollbar work it was meant to inform is still parked.
-It is now behind the same Debug-listener check `ContentsWatch` uses, hoisted into
-`Core/DebugLogging.cs`, and the check comes before the walk rather than after it.
+### What the code review caught
 
-So the run should produce, from this mod, the load line and nothing else.
+A round of `/code-review` on the finished branch found eight defects, and the serious one
+was a family rather than a case: a session goes read-only when a chest loads short, and
+`Persist` then refuses to write it, but **nothing asked before acting**. A deposit was taken
+and silently not saved, so the client deleted an item that no longer existed anywhere; a
+withdrawal handed out items the chest still had, which is repeatable duplication. Five paths
+had the hole. Two more were mine from the same day: emptying a chest reached past the
+session and left the open-stack index pointing at stacks that were gone, and every chest
+open rewrote the whole store whether or not consolidation had changed anything.
 
-### The probe had already answered its question
+Self-review found none of these. That is now four rounds in a row where a fresh reviewer
+found real defects in the storage path that the author did not. **Run it again on any
+further storage change.**
 
-Its report is preserved at `recovery/logs-pre-0.2.0-release/client-LogOutput.log:606`. The
-scrollbar hypothesis was right, and the parked scrollbar work does not need to re-run it:
+## Still to do
 
-- The bar is `ContainerScroll`, a **sibling** of `ContainerGrid`, not an ancestor - which is
-  why the first attempt searched the ancestors and never found the ScrollRect to detach.
-- `ContainerGrid` carries `InventoryGrid`, `RectMask2D`, `ScrollRect` and
-  `ScrollRectEnsureVisible` on one object, and its ScrollRect reports
-  `ownsThisBar=True`, `content='Root'`, `viewport=null`.
-- A second ScrollRect, `Recipes`, exists under the same window and does not own the bar, so
-  anything searching by type has to disambiguate.
-
-That log is also the evidence for the bug this release fixes: the dump is stamped
-`[Info   :BottomlessChest]` in a session that already had Debug off.
+- [ ] Upload `dist/BottomlessChest-0.2.0.zip` to Thunderstore. **Not done.** Versions are
+      immutable, so this waits for an explicit go-ahead.
+- [ ] Merge `valheim-1.0-compat` into `main` once the upload is confirmed good.
+- [ ] `StackRules.SplitForExit` is dead code - a correctness guard against oversized stacks
+      escaping into a vanilla save that nothing calls. Only reachable with `UnlimitedStacks`,
+      which is off by default, so it is not in 0.2.0's path. Worth wiring up or deleting.
+- [ ] An occasional take no-ops: the client fires a second one before the count update
+      lands, the server rejects it as stale and resends the page, and the item stays in the
+      chest. Not data loss, and the guard is doing its job, but the player sees a click do
+      nothing.
 
 ## Bugs found today that predate 1.0
 
