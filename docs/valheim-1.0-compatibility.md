@@ -171,22 +171,15 @@ Ordered by what unblocks what. Nothing here is started.
    layout `World.GetSavePaths()` reports, defaulting to Flat when unsure — the safe way to
    be wrong, since the read candidates cover it. The old file is left in place as a backup.
    The standing rule is pinned as a test: every path 0.1.0 read is still searched.
-5. **Fix the count.** *Half done, deliberately.*
-   - **Done:** `InventoryPayload` in `BottomlessChest.Logic` understands all three header
-     shapes and is covered by 14 tests. `PeekItemCount` and `Describe` now read through it
-     instead of assuming an int count. Saving reads its own output back and **refuses to
-     write a payload whose header disagrees with the inventory it came from** — so the
-     truncation is now a loud refusal that preserves the stored contents, instead of a
-     silent loss. Chests past 65,535 stacks stop saving rather than shrinking.
-   - **Not done:** actually lifting the ceiling. That means writing the count ourselves and
-     reading items back without `Inventory.Load`, which is a load path that has never run.
-     Given this project's history with partial loads, it should not be written blind. It
-     needs a game to run in, so it waits for one.
-6. **Teach `FastInventoryReader` format 109.** Not started. It correctly declines anything
-   that is not 106, so 1.0 stores load by the vanilla path — right, but slow, which is the
-   opposite of what a huge chest needs. 109 is a different encoding (bitfield header, byte
-   grid positions, prefab hash instead of a name) and `ItemData.Load(pkg, item, version)` is
-   public, so the rewrite should delegate to it rather than hand-parse.
+5. ~~**Fix the count.**~~ **Done.** The stack count is written by this mod; the items stay
+   the game's, byte for byte. `InventoryPayload` handles all three header shapes and is
+   covered by 18 tests. Every store write goes through `InventorySerializer.Save`, which
+   reads its own output back before returning it and refuses if it disagrees.
+6. ~~**Teach the reader format 109.**~~ **Done, by not hand-parsing it.** Items are read
+   back through the game's own `ItemData.Load`, which keeps this correct across item
+   formats we know nothing about - `m_cheated` included - and avoids the per-stack
+   `Instantiate` that made the fast reader necessary in the first place. Format 106 is
+   still read by hand for existing stores.
 7. ~~**Rename the patch target.**~~ **Done** — `RPC_TakeAllResponse`.
 8. ~~**Second-wave build breakage.**~~ **None.** `InventoryGrid.Element` and `SetSelection`
    were both renamed and we reference neither.
@@ -214,8 +207,13 @@ none of it has run.
       contributor and is unreviewed. The manifest still pins `ValheimModding-Jotunn-2.29.2`
       and must be bumped before publishing — the mod cannot load without it, so shipping
       against the old pin would produce a release that does nothing.
-- [ ] **Nothing has been verified in a game.** Not the path resolution, not the save
-      refusal, not the renamed RPC patch. The first run is the whole test plan.
+- [ ] **Nothing has been verified in a game.** Not the path resolution, not the new store
+      format, not the renamed RPC patch. The first run is the whole test plan, and the new
+      format means the first run also writes a store no earlier build can read.
+- [ ] **`dump-store.py` cannot decode 1.0 items yet.** It reads the framing and the count,
+      which is what matters for spotting a truncated chest, but the per-item encoding is a
+      bitfield keyed by prefab hash and needs the game's ObjectDB to resolve names. Worth
+      writing against a real 109 store once one exists, rather than guessing at it.
 - [ ] **Upgrade test, specifically:** open a world holding a 0.1.0 store, let 1.0 convert
       it, confirm the chest still opens full and that `dump-store.py` shows the same totals.
 - [ ] **Tag the release commit.** 0.1.0 shipped untagged and had to be reconstructed

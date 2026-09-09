@@ -25,13 +25,26 @@ for path in paths:
         sid, ticks, length = s7(s), rd('<q',8), rd('<i',4)
         p = io.BytesIO(s.read(length))
         pr = lambda f, n: struct.unpack(f, p.read(n))[0]
-        # Valheim 1.0 (item format 108+) narrowed the stack count to a ushort and changed
-        # the per-item encoding completely. Reading a 109 payload with the 106 rules gives
-        # a wrong count and then nonsense items, which is worse than saying so.
-        inv_ver = pr('<i',4)
-        items = pr('<H',2) if inv_ver >= 108 else pr('<i',4)
-        print(f"\n  store {sid}  ({length} bytes, inv v{inv_ver}, {items} stacks)")
+        # Three header shapes, matching BottomlessChest.Logic.InventoryPayload:
+        #   marker "BLCI" + version + int count  - written by 0.2.0 and later
+        #   version >= 108 + ushort count        - Valheim 1.0's own format
+        #   version < 108  + int count           - Valheim through 0.221
+        # Reading a 1.0 payload with the old rules gives a wrong count and then nonsense
+        # items, which is worse than saying so.
+        MARKER = 0x424C4349
+        first = pr('<i',4)
+        if first == MARKER:
+            inv_ver, items, framing = pr('<i',4), pr('<i',4), "bottomless"
+        else:
+            inv_ver = first
+            items = pr('<H',2) if inv_ver >= 108 else pr('<i',4)
+            framing = "vanilla"
+        print(f"\n  store {sid}  ({length} bytes, {framing} framing, inv v{inv_ver}, {items} stacks)")
         if inv_ver != 106:
+            # The 1.0 per-item encoding is a bitfield keyed by prefab hash rather than name,
+            # so resolving names needs the game's ObjectDB. Left undecoded deliberately
+            # until there is a real 109 store to write it against - guessing at a binary
+            # layout is how this tool would start lying.
             print(f"    [items not decoded: this tool only reads format 106, not {inv_ver}]")
             continue
         for _ in range(items):

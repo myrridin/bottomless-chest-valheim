@@ -19,14 +19,18 @@ from under an existing chest.
 
 ### Chests larger than 65,535 stacks
 
-Valheim 1.0 records a container's stack count in a field that stops at 65,535. A chest
-holding more than that would serialise with a wrapped count and lose the remainder on the
-next load, silently and permanently.
+Valheim 1.0 records a container's stack count in a field that stops at 65,535. Left alone,
+a chest holding more than that would have been saved with a wrapped count and lost the
+remainder on the next load, silently and permanently.
 
-**Saving now refuses rather than truncating.** A chest past that size keeps whatever is
-already stored, logs what happened, and stops saving new changes until the limit is lifted
-properly. Lifting it needs a load path that has to be tested in a running game, so it is
-not in this release. Chests below 65,535 stacks are unaffected.
+Chest contents are now stored with the stack count written by this mod rather than by the
+game, so there is no ceiling. Items themselves are still stored in the game's own format
+and read back by the game's own code, so nothing about how an item is recorded has changed.
+
+If a chest ever does serialise into something that does not read back as what went in, it
+refuses to save and says so, leaving the stored contents alone.
+
+**Stores written by 0.2.0 cannot be read by 0.1.0.** Upgrading is safe; going back is not.
 
 ### Other
 
