@@ -127,9 +127,25 @@ namespace BottomlessChest.Filter
                     ? _target.m_inventory.Count
                     : Mathf.Max(0, _windowEnd - _windowStart);
 
-                return drawn < WindowSlots ? drawn : -1;
+                // The last slot, not the one after the items. A page carries PageSlots
+                // items - one fewer than the window holds - so the bottom-right slot is
+                // always the free one, and putting the marker there means it is in the
+                // same place every time you open a chest. Following the items instead put
+                // it mid-grid whenever a page was short, which read as a gap in the
+                // results rather than a place to drop something.
+                return drawn < WindowSlots ? WindowSlots - 1 : -1;
             }
         }
+
+        /// <summary>Whether this inventory is the one the chest window is drawing.</summary>
+        /// <remarks>
+        /// Two different objects reach the grid depending on the mode: a paged chest draws
+        /// the page itself, while a local one draws a view built over the real inventory.
+        /// Checking only the first meant single-player never matched.
+        /// </remarks>
+        internal static bool IsDisplaying(Inventory inventory) =>
+            inventory != null
+            && (ReferenceEquals(inventory, _target) || ReferenceEquals(inventory, _view));
 
         internal static long Version => _version;
 

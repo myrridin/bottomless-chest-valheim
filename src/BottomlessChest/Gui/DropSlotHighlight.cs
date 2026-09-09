@@ -1,5 +1,6 @@
 using BottomlessChest.Filter;
 using HarmonyLib;
+using TMPro;
 using UnityEngine;
 
 namespace BottomlessChest.Gui
@@ -35,6 +36,20 @@ namespace BottomlessChest.Gui
         /// <summary>Used only if the prefab's own drop colour is fully transparent.</summary>
         private static readonly Color Fallback = new Color(0.65f, 0.85f, 0.55f, 0.55f);
 
+        /// <summary>
+        /// Drawn in the slot so it says what it is, not merely that it is special.
+        /// </summary>
+        /// <remarks>
+        /// A glow alone tells you a slot is different; it does not tell you it wants
+        /// something put in it. This borrows the stack-count label, which is idle on an
+        /// empty slot, rather than adding an object to a grid the game pools and reuses.
+        /// </remarks>
+        private const string DropGlyph = "+";
+
+        private static TextAlignmentOptions _defaultAlignment;
+        private static float _defaultFontSize;
+        private static bool _defaultsCaptured;
+
         [HarmonyPatch(typeof(InventoryGrid), "UpdateGui")]
         private static class Patch
         {
@@ -53,8 +68,9 @@ namespace BottomlessChest.Gui
                     return;
                 }
 
-                var isChestView = ReferenceEquals(__instance.m_inventory, ChestView.TargetInventory);
-                var dropSlot = isChestView ? ChestView.DropSlotIndex : -1;
+                var dropSlot = ChestView.IsDisplaying(__instance.m_inventory)
+                    ? ChestView.DropSlotIndex
+                    : -1;
 
                 for (var i = 0; i < root.childCount; i++)
                 {
@@ -66,7 +82,10 @@ namespace BottomlessChest.Gui
 
                     // Cleared as well as set: these elements are pooled and reused for
                     // ordinary containers, and a marker left behind would follow them there.
-                    element.m_dropFocus.color = i == dropSlot ? DropColour(element) : Color.clear;
+                    var isDropSlot = i == dropSlot;
+                    element.m_dropFocus.color = isDropSlot ? DropColour(element) : Color.clear;
+
+                    ApplyGlyph(element, isDropSlot);
                 }
             }
 
@@ -74,6 +93,43 @@ namespace BottomlessChest.Gui
             {
                 var designed = element.DropFocusOriginalColor;
                 return designed.a > 0f ? designed : Fallback;
+            }
+
+            /// <summary>Marks or unmarks the slot's idle stack-count label.</summary>
+            private static void ApplyGlyph(InventoryElement element, bool isDropSlot)
+            {
+                var label = element.m_amount;
+                if (label == null)
+                {
+                    return;
+                }
+
+                if (!_defaultsCaptured)
+                {
+                    // Every slot comes from one prefab, so one sample is the default for
+                    // all of them - and it has to be taken before we overwrite anything.
+                    _defaultAlignment = label.alignment;
+                    _defaultFontSize = label.fontSize;
+                    _defaultsCaptured = true;
+                }
+
+                if (isDropSlot)
+                {
+                    label.alignment = TextAlignmentOptions.Center;
+                    label.fontSize = _defaultFontSize * 1.8f;
+                    label.text = DropGlyph;
+                    label.enabled = true;
+                    return;
+                }
+
+                // Restored unconditionally. The game decides whether an occupied slot shows
+                // its count, but it never touches alignment or size, so anything we changed
+                // would follow this element to whatever it is reused for next.
+                if (_defaultsCaptured)
+                {
+                    label.alignment = _defaultAlignment;
+                    label.fontSize = _defaultFontSize;
+                }
             }
         }
     }

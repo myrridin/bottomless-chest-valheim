@@ -18,6 +18,16 @@ namespace BottomlessChest.Gui
         /// <summary>Gap between the search box and the count line beneath it.</summary>
         private const float StatusGap = 26f;
 
+        /// <summary>
+        /// Width of the count line. Wider than the search box on purpose.
+        /// </summary>
+        /// <remarks>
+        /// It has to hold something like "141403 of 1000024 items - rows 17660-17664 of
+        /// 125003", which is far longer than anything the box above it shows. Roughly the
+        /// width of the container panel, so it can use the space the chest already occupies.
+        /// </remarks>
+        private const float StatusWidth = 420f;
+
         private static GameObject _field;
         private static GameObject _hiddenTitle;
 
@@ -165,9 +175,19 @@ namespace BottomlessChest.Gui
                     color: GUIManager.Instance.ValheimOrange,
                     outline: true,
                     outlineColor: Color.black,
-                    width: 280f,
+                    width: StatusWidth,
                     height: 20f,
                     addContentSizeFitter: false).GetComponent<Text>();
+
+                // "141403 of 1000024 items - rows 17660-17664 of 125003" is a lot wider
+                // than the search box above it. Rather than clip, shrink to fit: the line
+                // is only readable if all of it is there, and a chest this size is exactly
+                // when the numbers matter most.
+                _status.horizontalOverflow = HorizontalWrapMode.Overflow;
+                _status.verticalOverflow = VerticalWrapMode.Truncate;
+                _status.resizeTextForBestFit = true;
+                _status.resizeTextMinSize = 9;
+                _status.resizeTextMaxSize = 13;
 
                 var fieldRect = _field.GetComponent<RectTransform>();
                 var statusRect = _status.rectTransform;
@@ -175,6 +195,7 @@ namespace BottomlessChest.Gui
                 statusRect.anchorMax = fieldRect.anchorMax;
                 statusRect.pivot = fieldRect.pivot;
                 statusRect.anchoredPosition = fieldRect.anchoredPosition - new Vector2(0f, StatusGap);
+                statusRect.sizeDelta = new Vector2(StatusWidth, 20f);
 
                 UpdateStatus();
             }
