@@ -14,14 +14,21 @@ namespace BottomlessChest.Core
     /// are therefore cancelled and replayed as requests: the server decides, and only then
     /// does anything move.
     ///
+    /// Amounts travel with the request, so splitting a stack works in both directions. The
+    /// server measures the amount against its own copy rather than trusting the client's, so
+    /// a split built from a stale page takes what is really there.
+    ///
     /// Single-player is untouched; there the client is the server and the chest is held
     /// whole in memory.
     /// </remarks>
     internal static class RemoteMovePatches
     {
         private static readonly List<int> OneSlot = new List<int>(1);
+        private static readonly List<int> OneAmount = new List<int>(1);
 
-        private static bool Intercept(Inventory destination, Inventory source, ItemDrop.ItemData item)
+        /// <param name="amount">How much of the stack is moving; 0 means all of it.</param>
+        private static bool Intercept(
+            Inventory destination, Inventory source, ItemDrop.ItemData item, int amount)
         {
             if (Plugin.Degraded || item == null)
             {
@@ -39,14 +46,16 @@ namespace BottomlessChest.Core
 
                 OneSlot.Clear();
                 OneSlot.Add(slot);
-                ChestView.RequestTake(OneSlot);
+                OneAmount.Clear();
+                OneAmount.Add(amount);
+                ChestView.RequestTake(OneSlot, OneAmount);
                 return false;
             }
 
             // Into the chest: offer it, and keep it until the server says it has it.
             if (ChestView.IsRemotePage(destination))
             {
-                return !ChestView.RequestPut(item);
+                return !ChestView.RequestPut(item, amount);
             }
 
             return true;
@@ -57,7 +66,7 @@ namespace BottomlessChest.Core
         private static class MoveWhole
         {
             private static bool Prefix(Inventory __instance, Inventory fromInventory, ItemDrop.ItemData item) =>
-                Intercept(__instance, fromInventory, item);
+                Intercept(__instance, fromInventory, item, 0);
         }
 
         [HarmonyPatch(typeof(Inventory), nameof(Inventory.MoveItemToThis),
@@ -65,10 +74,18 @@ namespace BottomlessChest.Core
         private static class MovePart
         {
             private static bool Prefix(
-                Inventory __instance, Inventory fromInventory, ItemDrop.ItemData item, ref bool __result)
+                Inventory __instance,
+                Inventory fromInventory,
+                ItemDrop.ItemData item,
+                int amount,
+                ref bool __result)
             {
-                // Partial stacks are not split across the wire yet; the whole stack moves.
-                if (!Intercept(__instance, fromInventory, item))
+                // This is the overload the split dialog ends in: OnSplitOk sets up a drag
+                // carrying an amount, and dropping it reaches InventoryGrid.DropItem, which
+                // calls MoveItemToThis(from, item, amount, x, y). Dropping the amount here
+                // is what used to make "take twenty" take the whole five-thousand stack and
+                // scatter the overflow on the floor.
+                if (!Intercept(__instance, fromInventory, item, amount))
                 {
                     __result = true;
                     return false;

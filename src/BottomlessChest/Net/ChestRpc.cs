@@ -66,16 +66,26 @@ namespace BottomlessChest.Net
             ToServer(package);
         }
 
-        internal static void Take(string storeId, long version, IReadOnlyList<int> indices)
+        /// <summary>
+        /// Asks the server to remove items, whole or in part.
+        /// </summary>
+        /// <remarks>
+        /// Each index is followed by an amount, 0 meaning the whole stack. Pairing them
+        /// rather than sending two runs keeps a mismatched count from silently pairing the
+        /// wrong amount with the wrong item.
+        /// </remarks>
+        internal static void Take(
+            string storeId, long version, IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null)
         {
             var package = new ZPackage();
             package.Write((int)ChestMessage.Take);
             package.Write(storeId);
             package.Write(version);
             package.Write(indices.Count);
-            foreach (var index in indices)
+            for (var i = 0; i < indices.Count; i++)
             {
-                package.Write(index);
+                package.Write(indices[i]);
+                package.Write(amounts == null || i >= amounts.Count ? 0 : amounts[i]);
             }
 
             ToServer(package);
@@ -176,9 +186,11 @@ namespace BottomlessChest.Net
                     var version = package.ReadLong();
                     var count = package.ReadInt();
                     var indices = new List<int>(count);
+                    var amounts = new List<int>(count);
                     for (var i = 0; i < count; i++)
                     {
                         indices.Add(package.ReadInt());
+                        amounts.Add(package.ReadInt());
                     }
 
                     if (!ChestSessions.TryGet(storeId, out var session))
@@ -197,7 +209,7 @@ namespace BottomlessChest.Net
                         break;
                     }
 
-                    var taken = session.Take(indices);
+                    var taken = session.Take(indices, amounts);
                     ChestSessions.Persist(session);
 
                     Plugin.Log.LogDebug(

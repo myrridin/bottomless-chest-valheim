@@ -134,5 +134,55 @@ namespace BottomlessChest.Tests
             Assert.Throws<System.ArgumentOutOfRangeException>(
                 () => StackRules.SplitForExit(100, maxStackSize));
         }
+
+        // TakeAmount decides how much of a stack leaves the chest when the player asked for
+        // part of it. The server is the authority on what is actually there, so "how much
+        // is available" is always its own number, never the client's.
+
+        [Fact]
+        public void TakeAmountOfZeroMeansTheWholeStack()
+        {
+            // Zero is the wire's "whole stack" sentinel. Callers that have never cared about
+            // partial takes - Take All, a plain click - send it, and must keep taking
+            // everything even when the client's idea of the stack is stale.
+            Assert.Equal(5000, StackRules.TakeAmount(0, 5000));
+        }
+
+        [Fact]
+        public void TakeAmountTakesTheAskedForPart()
+        {
+            Assert.Equal(20, StackRules.TakeAmount(20, 5000));
+        }
+
+        [Fact]
+        public void TakeAmountLeavesTheRemainder()
+        {
+            Assert.Equal(4980, 5000 - StackRules.TakeAmount(20, 5000));
+        }
+
+        [Theory]
+        [InlineData(5000)]
+        [InlineData(5001)]
+        [InlineData(int.MaxValue)]
+        public void TakeAmountNeverExceedsWhatIsThere(int requested)
+        {
+            // A stale client can ask for more than the stack now holds. Clamping here is
+            // what stops the split producing a negative remainder in the chest.
+            Assert.Equal(5000, StackRules.TakeAmount(requested, 5000));
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(int.MinValue)]
+        public void TakeAmountTreatsNegativesAsTheWholeStack(int requested)
+        {
+            Assert.Equal(50, StackRules.TakeAmount(requested, 50));
+        }
+
+        [Fact]
+        public void TakeAmountFromAnEmptyStackIsNothing()
+        {
+            Assert.Equal(0, StackRules.TakeAmount(10, 0));
+        }
     }
 }

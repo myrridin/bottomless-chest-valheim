@@ -35,8 +35,17 @@ refuses to save and says so, leaving the stored contents alone.
 
 ### Fixes that predate 1.0
 
-Three of these have been in the mod since 0.1.0 and were only found while testing against
-a dedicated server on 1.0. Anyone on 0.1.0 has all three.
+These have been in the mod since 0.1.0 and were only found while testing against a
+dedicated server on 1.0. Anyone on 0.1.0 has all of them.
+
+- **Taking part of a stack took the whole thing.** On a dedicated server, splitting a stack
+  out of a bottomless chest - the shift-drag that asks for twenty of something - handed over
+  the entire stack instead, and whatever would not fit in your inventory dropped on the
+  ground. Nothing was destroyed, but asking for twenty wood out of five thousand was not
+  something you wanted to do twice. Putting part of a stack *into* a chest had the same
+  fault in the other direction. Amounts now travel with the request, and the server measures
+  them against its own copy of the stack rather than trusting the page the client is looking
+  at.
 
 - **Another mod's deposits could vanish into a full chest.** Loading a chest left an
   internal flag set for the rest of the session, which quietly disabled the code that keeps
@@ -47,6 +56,11 @@ a dedicated server on 1.0. Anyone on 0.1.0 has all three.
   used also required being the server.
 - The panel shows four rows, not six. The mod had assumed six since before 1.0 redesigned
   the inventory; the extra rows were drawn off-screen and scrolled past.
+- The chest's scrollbar is shown when there is somewhere to scroll to and hidden when there
+  is not, the same as a vanilla container. It used to be permanently visible, and correcting
+  the row count above turned that into permanently invisible - the mod takes the bar off the
+  game's own scroll machinery in order to drive it, and had never taken over deciding
+  whether to show it.
 
 ### Other
 

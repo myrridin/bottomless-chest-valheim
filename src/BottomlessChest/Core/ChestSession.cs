@@ -134,24 +134,56 @@ namespace BottomlessChest.Core
             return page;
         }
 
-        /// <summary>Removes items named by their position in the current match order.</summary>
-        internal List<ItemDrop.ItemData> Take(IEnumerable<int> indices)
+        /// <summary>
+        /// Removes items named by their position in the current match order, in whole or in
+        /// part.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="amounts"/> runs alongside <paramref name="indices"/>; 0 means the
+        /// whole stack, which is what every caller that does not split sends. The amount is
+        /// measured against this session's own stack, never the client's, so a request built
+        /// from a stale page takes what is actually there instead of going negative.
+        ///
+        /// A partial take leaves the original item in place and hands back a clone carrying
+        /// the split-off amount. Leaving it in place matters: the order is by name, so
+        /// removing and re-adding would move the remainder to a different slot and the page
+        /// under the player's cursor would jump.
+        /// </remarks>
+        internal List<ItemDrop.ItemData> Take(IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null)
         {
             EnsureOrder();
 
             var taken = new List<ItemDrop.ItemData>();
-            foreach (var index in indices)
+            for (var i = 0; i < indices.Count; i++)
             {
+                var index = indices[i];
                 if (index < 0 || index >= _ordered.Count)
                 {
                     continue;
                 }
 
                 var item = _ordered[index];
-                if (Inventory.m_inventory.Remove(item))
+                var requested = amounts != null && i < amounts.Count ? amounts[i] : 0;
+                var amount = StackRules.TakeAmount(requested, item.m_stack);
+                if (amount <= 0)
                 {
-                    taken.Add(item);
+                    continue;
                 }
+
+                if (amount >= item.m_stack)
+                {
+                    if (Inventory.m_inventory.Remove(item))
+                    {
+                        taken.Add(item);
+                    }
+
+                    continue;
+                }
+
+                var part = item.Clone();
+                part.m_stack = amount;
+                item.m_stack -= amount;
+                taken.Add(part);
             }
 
             if (taken.Count > 0)

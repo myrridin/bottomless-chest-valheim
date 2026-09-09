@@ -59,6 +59,9 @@ namespace BottomlessChest.Filter
         /// </remarks>
         private static ItemDrop.ItemData _pendingPut;
 
+        /// <summary>How much of <see cref="_pendingPut"/> was offered; 0 means all of it.</summary>
+        private static int _pendingPutAmount;
+
         private static float _pendingPutSentAt;
 
         /// <summary>
@@ -635,7 +638,7 @@ namespace BottomlessChest.Filter
             }
         }
 
-        /// <summary>The server took the item we offered, so our copy can go.</summary>
+        /// <summary>The server took what we offered, so our copy of that much can go.</summary>
         internal static void ApplyAccepted()
         {
             if (_pendingPut == null)
@@ -643,8 +646,23 @@ namespace BottomlessChest.Filter
                 return;
             }
 
-            Player.m_localPlayer?.GetInventory()?.RemoveItem(_pendingPut);
+            var inventory = Player.m_localPlayer?.GetInventory();
+
+            if (_pendingPutAmount > 0 && _pendingPutAmount < _pendingPut.m_stack)
+            {
+                // Only part of the stack was offered, so only that part is gone. Vanilla has
+                // no partial RemoveItem for an ItemData in 1.0, so the count is adjusted
+                // directly and the inventory told, which is what RemoveItem would have done.
+                _pendingPut.m_stack -= _pendingPutAmount;
+                inventory?.Changed();
+            }
+            else
+            {
+                inventory?.RemoveItem(_pendingPut);
+            }
+
             _pendingPut = null;
+            _pendingPutAmount = 0;
         }
 
         /// <summary>
@@ -819,8 +837,15 @@ namespace BottomlessChest.Filter
             return trimmed;
         }
 
-        /// <summary>Asks the server for items at the given page slots.</summary>
-        internal static void RequestTake(IReadOnlyList<int> pageSlots)
+        /// <summary>
+        /// Asks the server for items at the given page slots, whole or in part.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="amounts"/> runs alongside <paramref name="pageSlots"/>, 0 meaning
+        /// the whole stack. Take All and an ordinary click leave it null and take everything;
+        /// only a split drag fills it in.
+        /// </remarks>
+        internal static void RequestTake(IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null)
         {
             if (!_remote || pageSlots.Count == 0)
             {
@@ -833,17 +858,24 @@ namespace BottomlessChest.Filter
                 absolute.Add((_scrollRow * Width) + slot);
             }
 
-            RemoveSlotsLocally(pageSlots);
+            RemoveSlotsLocally(pageSlots, amounts);
 
             Plugin.Log.LogDebug(
                 $"Requesting {absolute.Count} item(s) from chest {_remoteStoreId} at v{_version}, " +
                 $"row {_scrollRow} (first index {(absolute.Count > 0 ? absolute[0] : -1)}).");
 
-            Net.ChestRpc.Take(_remoteStoreId, _version, absolute);
+            Net.ChestRpc.Take(_remoteStoreId, _version, absolute, amounts);
         }
 
-        /// <summary>Offers an item from the player's inventory to the chest.</summary>
-        internal static bool RequestPut(ItemDrop.ItemData item)
+        /// <summary>
+        /// Offers an item, or part of one, from the player's inventory to the chest.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="amount"/> of 0 offers the whole stack. A partial offer sends a
+        /// clone carrying only the split amount, and the player keeps the original until the
+        /// server answers - the same rule as a whole offer, applied to a smaller number.
+        /// </remarks>
+        internal static bool RequestPut(ItemDrop.ItemData item, int amount = 0)
         {
             if (!_remote || item == null)
             {
@@ -856,8 +888,22 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
+            var offered = StackRules.TakeAmount(amount, item.m_stack);
+            if (offered <= 0)
+            {
+                return false;
+            }
+
+            var partial = offered < item.m_stack;
+            var sent = item;
+            if (partial)
+            {
+                sent = item.Clone();
+                sent.m_stack = offered;
+            }
+
             var scratch = new Inventory("put", null, Width, 1);
-            scratch.m_inventory.Add(item);
+            scratch.m_inventory.Add(sent);
 
             // Wrapped so the server reads it back with a direct add - see
             // ChestRpc.Serialize for why Inventory.AddItem is not safe for these.
@@ -868,6 +914,7 @@ namespace BottomlessChest.Filter
             }
 
             _pendingPut = item;
+            _pendingPutAmount = partial ? offered : 0;
             _pendingPutSentAt = Time.realtimeSinceStartup;
             Net.ChestRpc.Put(_remoteStoreId, payload);
             return true;
@@ -880,7 +927,7 @@ namespace BottomlessChest.Filter
         /// Optimistic only in appearance: the items are already committed to the server by
         /// the request that accompanies this, and the totals that follow are authoritative.
         /// </remarks>
-        private static void RemoveSlotsLocally(IReadOnlyList<int> pageSlots)
+        private static void RemoveSlotsLocally(IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null)
         {
             if (_target == null)
             {
@@ -888,12 +935,28 @@ namespace BottomlessChest.Filter
             }
 
             var doomed = new HashSet<ItemDrop.ItemData>();
-            foreach (var slot in pageSlots)
+            for (var i = 0; i < pageSlots.Count; i++)
             {
-                if (slot >= 0 && slot < _target.m_inventory.Count)
+                var slot = pageSlots[i];
+                if (slot < 0 || slot >= _target.m_inventory.Count)
                 {
-                    doomed.Add(_target.m_inventory[slot]);
+                    continue;
                 }
+
+                var item = _target.m_inventory[slot];
+                var requested = amounts != null && i < amounts.Count ? amounts[i] : 0;
+                var amount = StackRules.TakeAmount(requested, item.m_stack);
+
+                if (amount >= item.m_stack)
+                {
+                    doomed.Add(item);
+                    continue;
+                }
+
+                // A partial take leaves a remainder, and blanking the slot would hide it
+                // until the next page arrived. The server splits the same way, so the two
+                // agree without another round trip.
+                item.m_stack -= amount;
             }
 
             _target.m_inventory.RemoveAll(item => doomed.Contains(item));

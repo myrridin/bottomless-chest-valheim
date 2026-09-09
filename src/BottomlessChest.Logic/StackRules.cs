@@ -66,6 +66,30 @@ namespace BottomlessChest.Logic
         }
 
         /// <summary>
+        /// How much of a stack actually leaves the chest for a requested amount.
+        /// </summary>
+        /// <remarks>
+        /// Zero and anything negative mean "all of it". That sentinel exists so the callers
+        /// that never cared about partial takes - Take All, an ordinary click - keep saying
+        /// nothing about amounts and keep getting the whole stack, rather than each having
+        /// to send a number it would have to read off a page that may be out of date.
+        ///
+        /// <paramref name="available"/> is always the server's own count. A client asking
+        /// for more than the stack now holds is the ordinary case after a stale page, not an
+        /// error, and clamping is what keeps the split from leaving a negative remainder
+        /// behind in the chest.
+        /// </remarks>
+        public static int TakeAmount(int requested, int available)
+        {
+            if (available <= 0)
+            {
+                return 0;
+            }
+
+            return requested <= 0 || requested >= available ? available : requested;
+        }
+
+        /// <summary>
         /// Breaks an oversized stack into vanilla-legal pieces on its way out of the chest.
         /// </summary>
         /// <remarks>
