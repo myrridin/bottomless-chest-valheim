@@ -18,7 +18,7 @@ namespace BottomlessChest.Commands
 
         public override string Help =>
             "bottomless list | here | rebind <storeId> | fill <stacks> [prefab] | empty  " +
-            "(fill and empty need devcommands)";
+            "(fill and empty are off by default; see the Testing section of the config)";
 
         public override void Run(string[] args)
         {
@@ -137,15 +137,31 @@ namespace BottomlessChest.Commands
         /// get bulk test data into a chest in the setup we actually develop against.
         /// </remarks>
         /// <summary>
-        /// Gates the development commands behind cheats.
+        /// Gates the development commands behind a config switch and cheats, both.
         /// </summary>
         /// <remarks>
         /// Filling a chest with a hundred thousand items is a testing tool, not a feature.
-        /// Vanilla puts spawn behind devcommands for the same reason, so this follows the
-        /// convention players already know rather than inventing a setting.
+        /// Devcommands alone is the convention players already know, but it is also a thing
+        /// people turn on for an evening and forget about, and these two commands are
+        /// destructive in a way spawning an item is not - "empty" discards a chest's
+        /// contents outright.
+        ///
+        /// So the config switch is the real gate and devcommands is the second one. Off by
+        /// default means a normal install cannot reach them at all, however the console is
+        /// left.
         /// </remarks>
         private static bool RequireCheats()
         {
+            if (Settings.ModConfig.EnableTestingCommands == null
+                || !Settings.ModConfig.EnableTestingCommands.Value)
+            {
+                Console.instance?.Print(
+                    "This is a testing command, disabled by default. Set EnableTestingCommands " +
+                    "in the Testing section of the config to turn it on.");
+
+                return false;
+            }
+
             if (Console.instance != null && Console.instance.IsCheatsEnabled())
             {
                 return true;

@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.2.0
+
+**Requires Valheim 1.0.** This release does not work on 0.221 or earlier — 1.0 renamed a
+method the mod patches, and the storage APIs it uses moved. Stay on 0.1.0 if you are still
+on an older game version.
+
+Upgrading from 0.1.0 does not lose chest contents. Existing stores are read exactly where
+they have always been, and 1.0's new save layout is handled without moving anything out
+from under an existing chest.
+
+### Valheim 1.0 support
+
+- Chest stores are found whether or not 1.0 has converted your world. 1.0 gives each world
+  its own directory the first time it is opened and leaves the store behind in the parent;
+  both places are searched, and the old file is left where it is as a backup.
+- Rebuilt against 1.0's storage and save APIs.
+
+### Chests larger than 65,535 stacks
+
+Valheim 1.0 records a container's stack count in a field that stops at 65,535. A chest
+holding more than that would serialise with a wrapped count and lose the remainder on the
+next load, silently and permanently.
+
+**Saving now refuses rather than truncating.** A chest past that size keeps whatever is
+already stored, logs what happened, and stops saving new changes until the limit is lifted
+properly. Lifting it needs a load path that has to be tested in a running game, so it is
+not in this release. Chests below 65,535 stacks are unaffected.
+
+### Other
+
+- `bottomless fill` and `bottomless empty` are off by default. They are testing tools, and
+  `empty` discards a chest's contents outright, so they now need `EnableTestingCommands` in
+  the Testing section of the config **and** `devcommands`.
+- Items added directly into a bottomless chest by another mod are refused on a dedicated
+  server client rather than accepted and discarded. ValheimPlus smelters, kilns and
+  furnaces drop their output on the ground instead of destroying it.
+
+### Dedicated servers
+
+Storage, paging, search, Take All and Stack All work as they did in 0.1.0.
+
+ValheimPlus crafting and station auto-pull still do **not** see bottomless chest contents on
+a dedicated server. They read an empty inventory and take nothing, so no materials are lost;
+they simply behave as though the chest were not there. Fixing that is designed and started,
+and waits on ValheimPlus having a 1.0 build of its own.
+
 ## 0.1.0
 
 First release.

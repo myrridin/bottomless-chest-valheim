@@ -17,9 +17,16 @@ namespace BottomlessChest.Settings
         internal static ConfigEntry<string> LidTint;
         internal static ConfigEntry<string> GlowColour;
         internal static ConfigEntry<float> GlowStrength;
+        internal static ConfigEntry<bool> EnableTestingCommands;
 
         internal static void Bind(ConfigFile cfg)
         {
+            EnableTestingCommands = cfg.Bind("Testing", "EnableTestingCommands", false,
+                "Enables 'bottomless fill' and 'bottomless empty', which exist to test the " +
+                "mod rather than to play with. They still require devcommands on top of " +
+                "this. Off by default because filling a chest with a hundred thousand items " +
+                "is not something anyone should be one typo away from.");
+
             ModelScale = cfg.Bind("Appearance", "ModelScale", 1.0f,
                 new ConfigDescription(
                     "Scale multiplier on the chest model, relative to the vanilla personal " +
