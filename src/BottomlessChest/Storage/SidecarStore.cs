@@ -195,13 +195,16 @@ namespace BottomlessChest.Storage
                 }
 
                 // Worth saying out loud: it means the next save moves the store, and if
-                // anything later goes wrong this line is where it was read from.
+                // anything later goes wrong this line is where it was read from. The
+                // destination is named as the likely one rather than the certain one -
+                // ChooseSource can still divert the write to local storage if the cloud
+                // quota is short, and says so itself when it does.
                 if (candidate.Path != expected)
                 {
                     Plugin.Log.LogInfo(
-                        $"Read chest store from '{candidate.Path}'. It will be written to " +
-                        $"'{expected}' from now on; the file it came from is left in place " +
-                        "as a backup.");
+                        $"Read chest store from '{candidate.Path}', which is not where this " +
+                        $"build writes. It will be saved to '{expected}' instead, and the file " +
+                        "it was read from is left in place as a backup.");
                 }
 
                 return;
