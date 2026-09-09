@@ -226,11 +226,12 @@ namespace BottomlessChest.Core
         /// holding a page numbered the old way would take the wrong items. Opening is the one
         /// moment when no page exists yet.
         /// </remarks>
-        internal void Consolidate()
+        /// <returns>True if anything actually moved, so the caller knows to write.</returns>
+        internal bool Consolidate()
         {
             if (_consolidated)
             {
-                return;
+                return false;
             }
 
             _consolidated = true;
@@ -240,18 +241,37 @@ namespace BottomlessChest.Core
                 // Contents in memory can no longer be trusted, so this session stops writing
                 // and the store keeps what it already had.
                 ReadOnly = true;
-                return;
+                return false;
             }
 
             if (collapsed <= 0)
             {
-                return;
+                return false;
             }
 
             Touch();
             Plugin.Log.LogInfo(
                 $"Consolidated chest {StoreId}: {collapsed} part-stack(s) merged away, " +
                 $"{Inventory.m_inventory.Count} left.");
+
+            return true;
+        }
+
+        /// <summary>Discards everything, index included.</summary>
+        /// <remarks>
+        /// Emptying by reaching into <c>Inventory.m_inventory</c> leaves the open-stack index
+        /// pointing at stacks that are no longer in the chest, and the next deposit merges
+        /// into one of those ghosts - the items land nowhere and the client is told they
+        /// arrived. Anything that empties a chest has to come through here.
+        /// </remarks>
+        internal void Clear()
+        {
+            Inventory.m_inventory.Clear();
+            _openStacks.Clear();
+
+            // Vacuously true, and it keeps a later Consolidate from walking an empty list.
+            _consolidated = true;
+            Touch();
         }
 
         /// <summary>

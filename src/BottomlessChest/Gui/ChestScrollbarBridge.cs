@@ -48,6 +48,9 @@ namespace BottomlessChest.Gui
         /// <summary>The bar's own visibility, to hand back exactly as it was found.</summary>
         private bool _barWasActive;
 
+        /// <summary>Whether the ScrollRect really owned this bar before we took it.</summary>
+        private bool _hadBar;
+
         internal void Bind(InventoryGrid grid)
         {
             if (grid == null)
@@ -70,6 +73,11 @@ namespace BottomlessChest.Gui
             var owner = grid.GetComponent<ScrollRect>();
             if (owner != null && (owner.verticalScrollbar == _bar || owner.verticalScrollbar == null))
             {
+                // Whether it had one decides whether it gets one back. A ScrollRect that
+                // legitimately ships without a vertical scrollbar must not be handed ours on
+                // the way out - vanilla would start driving the bar every frame, which is the
+                // flickering this class exists to stop, reached from the other side.
+                _hadBar = owner.verticalScrollbar == _bar;
                 _detachedFrom = owner;
                 owner.verticalScrollbar = null;
             }
@@ -163,7 +171,11 @@ namespace BottomlessChest.Gui
 
             if (_detachedFrom != null)
             {
-                _detachedFrom.verticalScrollbar = _bar;
+                if (_hadBar)
+                {
+                    _detachedFrom.verticalScrollbar = _bar;
+                }
+
                 _detachedFrom = null;
             }
         }

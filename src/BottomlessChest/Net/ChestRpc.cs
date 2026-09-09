@@ -198,6 +198,13 @@ namespace BottomlessChest.Net
                         break;
                     }
 
+                    if (RefusesToChange(session, sender, "a withdrawal"))
+                    {
+                        // A page puts back the slots the client blanked when it asked.
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
                     if (session.Version != version)
                     {
                         // The client acted on a stale view; give it a fresh one instead of
@@ -259,9 +266,18 @@ namespace BottomlessChest.Net
                         break;
                     }
 
+                    if (RefusesToChange(session, sender, "a deposit"))
+                    {
+                        // Anything but Accepted leaves the item with the sender.
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
                     // Accepted makes the client delete its copy of the item. Sending it for
-                    // a payload we could not read destroys the item outright.
-                    if (!TryDeserialize(itemBytes, out var deposited))
+                    // a payload we could not read destroys the item outright - and a payload
+                    // that read as nothing at all is exactly that case, because the loader
+                    // skips items whose prefab it cannot resolve and still reports success.
+                    if (!TryDeserialize(itemBytes, out var deposited) || deposited.Count == 0)
                     {
                         Plugin.Log.LogError(
                             $"Could not read a deposit into chest {storeId}; refusing it so the " +
@@ -303,6 +319,11 @@ namespace BottomlessChest.Net
                         break;
                     }
 
+                    if (RefusesToChange(session, sender, "a fill"))
+                    {
+                        break;
+                    }
+
                     // Generated on the server: both ends share an item database, so sending
                     // a hundred thousand stacks over the wire would be pointless.
                     var items = TestData.Build(stacks, prefabName, out var error);
@@ -336,9 +357,14 @@ namespace BottomlessChest.Net
                         break;
                     }
 
+                    if (RefusesToChange(session, sender, "an empty"))
+                    {
+                        SendPage(sender, session, -1);
+                        break;
+                    }
+
                     var before = session.TotalCount;
-                    session.Inventory.m_inventory.Clear();
-                    session.Touch();
+                    session.Clear();
                     ChestSessions.Persist(session);
 
                     Plugin.Log.LogDebug($"Emptied chest {storeId} of {before} stacks.");
@@ -357,6 +383,24 @@ namespace BottomlessChest.Net
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
                     {
+                        break;
+                    }
+
+                    if (RefusesToChange(session, sender, "a deposit"))
+                    {
+                        // An empty kept-list is how this reply says "none of them", which
+                        // leaves every offered item with the sender.
+                        var refused = new ZPackage();
+                        refused.Write((int)ChestMessage.Stacked);
+                        refused.Write(storeId);
+                        refused.Write(0);
+                        _rpc.SendPackage(sender, refused);
+
+                        if (!wasOpen)
+                        {
+                            ChestSessions.Release(storeId);
+                        }
+
                         break;
                     }
 
@@ -461,6 +505,33 @@ namespace BottomlessChest.Net
         }
 
         /// <summary>Identity for stacking: same item, same quality, same variant.</summary>
+        /// <summary>
+        /// Whether a chest is open read-only, and says so to the client if it is.
+        /// </summary>
+        /// <remarks>
+        /// A session goes read-only when the store loaded short - an item whose prefab this
+        /// install cannot resolve - and <see cref="ChestSessions.Persist"/> then refuses to
+        /// write it, so the copy on disk stays the more complete one. Every path that
+        /// changes contents has to ask this first. Without it the change happened in memory,
+        /// the write was silently skipped, and the client was told it had succeeded: a
+        /// deposit destroyed the item, and a withdrawal handed out a copy the chest still
+        /// had.
+        /// </remarks>
+        private static bool RefusesToChange(ChestSession session, long sender, string what)
+        {
+            if (session == null || !session.ReadOnly)
+            {
+                return false;
+            }
+
+            Plugin.Log.LogError(
+                $"Refusing {what} on chest {session.StoreId}: it loaded short and is open " +
+                "read-only, so nothing can be written to it. Whoever asked keeps their items. " +
+                "Something in this chest has an item prefab this install cannot resolve.");
+
+            return true;
+        }
+
         private static byte[] Serialize(List<ItemDrop.ItemData> items)
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, Filter.ChestView.VisibleRows);
@@ -518,8 +589,16 @@ namespace BottomlessChest.Net
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, 4096);
 
-            var ok = bytes == null || bytes.Length == 0
-                || InventorySerializer.Load(scratch, bytes, out _);
+            // The count has to be checked, not discarded. The loader skips an item whose
+            // prefab this install cannot resolve, logs it, and still returns true - so
+            // without this a deposit from a client running a content mod the server lacks
+            // read as a success carrying nothing, and the sender was told to delete it.
+            var ok = true;
+            if (bytes != null && bytes.Length > 0)
+            {
+                ok = InventorySerializer.Load(scratch, bytes, out var expected)
+                     && scratch.m_inventory.Count == expected;
+            }
 
             items = new List<ItemDrop.ItemData>(scratch.m_inventory);
             return ok;
@@ -554,7 +633,18 @@ namespace BottomlessChest.Net
 
                 case ChestMessage.Granted:
                 {
-                    var items = Deserialize(package.ReadByteArray());
+                    // The one receive path where a quiet failure is permanent: the server has
+                    // already removed these and persisted without them, so whatever does not
+                    // read here is gone. Whatever does read is still applied.
+                    if (!TryDeserialize(package.ReadByteArray(), out var items))
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not fully read the items granted from chest {storeId}; " +
+                            $"{items.Count} recovered. The server removed them before sending, " +
+                            "so anything missing is lost. This install is most likely missing " +
+                            "a content mod the server has.");
+                    }
+
                     Filter.ChestView.ApplyGranted(items);
                     break;
                 }

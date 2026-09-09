@@ -71,6 +71,16 @@ dedicated server on 1.0. Anyone on 0.1.0 has all of them.
   spare slots available - the exact thing that code was added to prevent.
 - **`bottomless fill` and `empty` could be run by any connected player**, whatever their own
   settings said. The server now decides for its own chests.
+- **A chest that could not be fully read accepted changes anyway.** When a chest holds an
+  item whose prefab this install cannot resolve - a content mod removed, or a server running
+  one the client lacks - it opens read-only so the good copy on disk is never overwritten.
+  Nothing checked that before acting: a deposit was taken and quietly not saved, destroying
+  the item, and a withdrawal handed out items the chest still had, which is a duplication
+  bug you could repeat at will. Every path that changes a chest now refuses first and says
+  so, and whoever asked keeps their items.
+- **Items that arrived unreadable were reported as delivered.** A deposit whose payload read
+  as nothing at all counted as a successful read, so the sender was told to delete it. The
+  count in the payload is now checked against what came out of it.
 - **Those two commands never worked on a dedicated server at all**, because the check they
   used also required being the server.
 - The panel shows four rows, not six. The mod had assumed six since before 1.0 redesigned

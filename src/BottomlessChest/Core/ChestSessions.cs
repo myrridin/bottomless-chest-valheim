@@ -75,9 +75,11 @@ namespace BottomlessChest.Core
             // Before any page is built, so the numbering a client is handed is the numbering
             // it will still be holding. A read-only session is left alone: its contents are
             // the ones we could not fully read, and they are never written back anyway.
-            if (!session.ReadOnly)
+            // Persisted only when something actually merged. Persist is a full serialize of
+            // the whole chest and marks the store dirty, so writing unconditionally made
+            // merely looking inside a large chest cost a rewrite of every chest in the world.
+            if (!session.ReadOnly && session.Consolidate())
             {
-                session.Consolidate();
                 Persist(session);
             }
 
