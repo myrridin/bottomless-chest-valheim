@@ -192,7 +192,21 @@ namespace BottomlessChest.Filter
         /// </remarks>
         internal const int Width = 8;
 
-        internal const int VisibleRows = 6;
+        /// <summary>
+        /// Rows of slots the container panel actually shows.
+        /// </summary>
+        /// <remarks>
+        /// Four on Valheim 1.0. This was 6, which is what the panel showed before 1.0
+        /// redesigned it, and nothing complained because everything derived from it stayed
+        /// self-consistent: the extra two rows were drawn off-panel, and since the scroll
+        /// step came from the same constant they simply reappeared at the top of the next
+        /// page. The only visible symptom was the drop marker sitting in a row nobody could
+        /// see.
+        ///
+        /// If the panel ever shows a different number of rows, this is the one place to
+        /// change - window size, page size and both scroll clamps are derived from it.
+        /// </remarks>
+        internal const int VisibleRows = 4;
 
         /// <summary>Grid width, exposed for server-side paging which has no view of its own.</summary>
         internal static int WidthForSession => Width;

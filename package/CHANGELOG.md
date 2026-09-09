@@ -33,6 +33,21 @@ refuses to save and says so, leaving the stored contents alone.
 
 **Stores written by 0.2.0 cannot be read by 0.1.0.** Upgrading is safe; going back is not.
 
+### Fixes that predate 1.0
+
+Three of these have been in the mod since 0.1.0 and were only found while testing against
+a dedicated server on 1.0. Anyone on 0.1.0 has all three.
+
+- **Another mod's deposits could vanish into a full chest.** Loading a chest left an
+  internal flag set for the rest of the session, which quietly disabled the code that keeps
+  spare slots available - the exact thing that code was added to prevent.
+- **`bottomless fill` and `empty` could be run by any connected player**, whatever their own
+  settings said. The server now decides for its own chests.
+- **Those two commands never worked on a dedicated server at all**, because the check they
+  used also required being the server.
+- The panel shows four rows, not six. The mod had assumed six since before 1.0 redesigned
+  the inventory; the extra rows were drawn off-screen and scrolled past.
+
 ### Other
 
 - `bottomless fill` and `bottomless empty` are off by default. They are testing tools, and
