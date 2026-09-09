@@ -163,11 +163,13 @@ Ordered by what unblocks what. Nothing here is started.
 3. ~~**Make it compile.**~~ **Done.** Six API changes in the end — `FileWriter`'s constructor
    also takes a grouping. Storage paths deliberately excluded; `SaveSystem.GetWorldsSaveRootPath`
    reproduces the old path exactly, so nothing moved.
-4. **Store path resolution, read-path-grows.** Confirmed to affect every existing world, not
-   only new ones, which makes this the release blocker rather than an edge case. Write beside
-   the world wherever it actually lives; on read try the new per-world directory, then the
-   flat legacy location, then the existing cloud/local fallbacks. Unit-testable if the path
-   rule is lifted into `BottomlessChest.Logic`.
+4. ~~**Store path resolution, read-path-grows.**~~ **Done.** `StoreLocations` in
+   `BottomlessChest.Logic`, 16 tests. Reads try the per-world directory then the flat
+   location, in both the world's own storage and the local fallback; a candidate that will
+   not read falls through, so a half-written file cannot hide a good one. Writes follow the
+   layout `World.GetSavePaths()` reports, defaulting to Flat when unsure — the safe way to
+   be wrong, since the read candidates cover it. The old file is left in place as a backup.
+   The standing rule is pinned as a test: every path 0.1.0 read is still searched.
 5. **Fix the count.** *Half done, deliberately.*
    - **Done:** `InventoryPayload` in `BottomlessChest.Logic` understands all three header
      shapes and is covered by 14 tests. `PeekItemCount` and `Describe` now read through it
@@ -201,3 +203,23 @@ when V+ ships a 1.0 build.
 The 0.2.0 release plan changes shape too: the published 0.1.0 is broken for anyone who
 updates to 1.0, which makes a compatibility release more urgent than a feature release, and
 makes the game version an explicit part of the release notes for the first time.
+
+## What stands between here and shipping 0.2.0
+
+Everything below is blocked on Jotunn, which is the honest summary: the code is written and
+none of it has run.
+
+- [ ] **Jotunn needs a 1.0 build.** PR #483 was opened the day 1.0 shipped by a community
+      contributor and is unreviewed. The manifest still pins `ValheimModding-Jotunn-2.29.2`
+      and must be bumped before publishing — the mod cannot load without it, so shipping
+      against the old pin would produce a release that does nothing.
+- [ ] **Nothing has been verified in a game.** Not the path resolution, not the save
+      refusal, not the renamed RPC patch. The first run is the whole test plan.
+- [ ] **Upgrade test, specifically:** open a world holding a 0.1.0 store, let 1.0 convert
+      it, confirm the chest still opens full and that `dump-store.py` shows the same totals.
+- [ ] **Tag the release commit.** 0.1.0 shipped untagged and had to be reconstructed
+      afterwards by matching a zip's mtime against commit times.
+- [ ] **One run at default log levels** to confirm `ContentsWatch` disarms and costs nothing.
+
+Done and waiting: version bumped to 0.2.0, changelog written, testing commands gated behind
+config plus devcommands, `.pdb` confirmed absent from both the package and the deploys.
