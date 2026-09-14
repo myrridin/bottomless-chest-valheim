@@ -44,8 +44,9 @@ namespace BottomlessChest.Core
         /// One pass, compacting in place rather than building a second list - the caller may
         /// be holding ten million stacks, and a copy of that is real memory.
         ///
-        /// Stacks already above the vanilla ceiling are left exactly as they are. Only
-        /// UnlimitedStacks makes them, and topping one up would push it further out of spec.
+        /// Stacks already above the ceiling are left exactly as they are. They come from a
+        /// stack multiplier that has since been lowered or removed, and topping one up would
+        /// push it further out of spec.
         /// </remarks>
         internal static bool Collapse(
             Inventory inventory,
