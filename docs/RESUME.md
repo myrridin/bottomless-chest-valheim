@@ -274,6 +274,27 @@ has to be read with that in mind.
       sweep double-offering, duplicated station deposits, two copies via `LoadFromStore`
       adopting sessions, and the accepted index race (an occasional unpaid craft).
 
+- [ ] **B11. Close the places V+ looks past the chest seam** (2026-09-14). Found by the user's
+      station tests: smelter output splitting between chests, no auto-stack sweep from an open
+      bottomless chest, then a sweep of every V+ call touching a chest inventory. Spec
+      *Revision — 2026-09-14 (2)*; plan `docs/superpowers/plans/2026-09-14-valheimplus-chest-queries.md`.
+      User rulings: close everything V+ can reach; fold the 0.2.1-live duplication fix into
+      0.3.0 (no hotfix); accept the last-units race; one message (vanilla's flag) over a correct
+      count needing another V+ hook.
+      - Task 1 `bceb92e`: index entries carry world level and cheated; `TakeByName` min world level.
+        Fixes crafting from bottomless chests counting nothing in worlds above level 0.
+      - Task 2 `d42b1ae`: vanilla `HaveItem`/`CountItems`/`GetItem`/`RemoveItem(string)` answer
+        from the index for client bottomless inventories (`Compat/ChestContents`,
+        `InventoryQueryPatches`). Fixes deposit choice, cooking station and fermenter pulls,
+        choose-one recipes, free fireplace fuel.
+      - Task 3 `c2a6460`: `Logic/OfferQueue` - one offer at a time, reservations, puts without a
+        timeout, `PutRefused` (18), server always answers. Fixes the sweep duplication and the
+        slow-reply re-send race. Messages follow vanilla's `StackAll` flag.
+      - Task 4: `ClientStackAllPatch` replaces `StackAllPatch` + `StackAllButtonPatch`; optional
+        V+ `ContainsItemByName` hook for sweep targeting.
+      - **Not yet deployed or tested in game** (the user was mid-test on the previous build).
+        Task 5's list is in the plan; `/code-review` after.
+
 ### C. Requested by the user
 
 - [x] **C11. Default build cost → the wooden chest's.** Done in `39457f6`: `Wood:10`, read
