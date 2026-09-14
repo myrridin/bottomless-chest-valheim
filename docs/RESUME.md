@@ -135,8 +135,30 @@ has to be read with that in mind.
           `ContentsVersion`, which moves on every change and keys the index. A partial removal
           and a merged deposit bump only the latter. A viewer's page can show slightly stale
           counts while a station runs; a take is still measured against the real stack.
-        - **Still to verify:** the kiln deposits coal into the chest, Place Stacks, the
-          near-spawn server-owned kiln, and the store totals afterwards.
+      - **B9 run 3 (2026-09-14), with `7f8e8c3`, `81e74cf` and `d03654b` deployed:**
+        - **Passed:**
+          - The kiln received the wood the chest gave up (`Added 25 ores($item_wood)`).
+          - Its coal was forwarded and **landed in the chest**: the store shows `Coal: 1`, so
+            `DepositForward` works.
+          - Ctrl-click take and put worked while the kiln ran, with no stale refusals in the
+            server log.
+        - **Not a bug:** the kiln "stopped". The dev V+ config has kiln `productionSpeed = 60`,
+          which is seconds per coal (default 15), and `maximumWood = 25`. The queue filled, and
+          the player had taken every wood stack into their inventory, so there was nothing left
+          to pull. `Player.log` holds our Debug take lines, which reconstruct it:
+          - four whole-stack takes;
+          - put-and-retake cycles;
+          - a final take after reopening.
+
+          Store after run 3: Stone 478, SurtlingCore 95, Coal 1, Wood 0; about 1974 wood is in
+          the player's inventory.
+        - **Cosmetic, fixed:** clients logged "Refusing to save chest …: its contents were never
+          loaded" on every V+ deposit. `SaveToStore` now checks for a client first.
+        - **Still to verify:**
+          - drag-out lands in the inventory (step 4);
+          - Place Stacks;
+          - the near-spawn server-owned kiln;
+          - coal accumulating over several minutes, checked against wood consumed.
       - **Still to run** after deploying `390697b`: steps 2–7 of the B9 list (build menu,
         crafting open and closed, kiln pull and coal deposit, Place Stacks, a server-owned kiln
         near spawn, then save).
