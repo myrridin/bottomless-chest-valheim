@@ -122,48 +122,6 @@ namespace BottomlessChest.Gui
             {
                 Sync();
             }
-
-            WatchContent();
-        }
-
-        private Vector2 _lastContent = new Vector2(float.NaN, float.NaN);
-
-        /// <summary>
-        /// B9 diagnostic: reports the ScrollRect's content moving, which shows a partial row.
-        /// </summary>
-        /// <remarks>
-        /// This bridge takes the scrollbar away from the ScrollRect but leaves the ScrollRect
-        /// itself live, so anything that moves its content - the gamepad's ensure-visible, the
-        /// wheel, a layout pass - slides the fixed grid out of place. Debug logging only.
-        /// </remarks>
-        private void WatchContent()
-        {
-            // TEMPORARY B9 diagnostic, deliberately ungated - see ChestView.ScrollTo. Remove before release.
-            if (_detachedFrom == null || _detachedFrom.content == null)
-            {
-                return;
-            }
-
-            var now = _detachedFrom.content.anchoredPosition;
-            if (float.IsNaN(_lastContent.x))
-            {
-                _lastContent = now;
-                return;
-            }
-
-            if ((now - _lastContent).sqrMagnitude < 0.01f)
-            {
-                return;
-            }
-
-            var system = UnityEngine.EventSystems.EventSystem.current;
-            var selected = system != null ? system.currentSelectedGameObject : null;
-            Plugin.Log.LogDebug(
-                $"Chest ScrollRect content moved {_lastContent} -> {now}, normalized " +
-                $"{_detachedFrom.verticalNormalizedPosition:0.00}, selected " +
-                $"'{(selected != null ? selected.name : "none")}', gamepad {ZInput.IsGamepadActive()}.");
-
-            _lastContent = now;
         }
 
         private void Sync()

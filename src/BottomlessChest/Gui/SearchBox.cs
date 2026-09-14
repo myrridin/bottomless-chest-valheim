@@ -107,16 +107,6 @@ namespace BottomlessChest.Gui
                 // about on-screen keyboards and gamepads. The legacy one is the fallback.
                 _input = SearchField.TryCloneVanilla(parent);
 
-                // TEMPORARY B9 diagnostic, ungated: which gamepad button each hint in the chest
-                // window answers to. Search and Take All were reported sharing one. Remove before
-                // release.
-                foreach (var pad in gui.m_container.GetComponentsInChildren<UIGamePad>(true))
-                {
-                    Plugin.Log.LogInfo(
-                        $"[pad] {pad.gameObject.name}: key '{pad.m_zinputKey}', keyCode {pad.m_keyCode}, " +
-                        $"hint {(pad.m_hint != null ? pad.m_hint.name : "none")}");
-                }
-
                 if (_input == null)
                 {
                     var legacy = GUIManager.Instance.CreateInputField(
