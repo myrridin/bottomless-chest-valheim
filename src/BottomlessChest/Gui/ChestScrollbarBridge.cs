@@ -51,6 +51,9 @@ namespace BottomlessChest.Gui
         /// <summary>Whether the ScrollRect really owned this bar before we took it.</summary>
         private bool _hadBar;
 
+        /// <summary>Whether the ScrollRect scrolled vertically before this bridge locked it.</summary>
+        private bool _wasVertical;
+
         internal void Bind(InventoryGrid grid)
         {
             if (grid == null)
@@ -80,6 +83,19 @@ namespace BottomlessChest.Gui
                 _hadBar = owner.verticalScrollbar == _bar;
                 _detachedFrom = owner;
                 owner.verticalScrollbar = null;
+
+                // Locked while the chest is open. The grid is a fixed window that pages itself,
+                // but the ScrollRect was still live: the wheel slid its content, and vanilla's
+                // gamepad ensure-visible centred the selected slot, both leaving the grid parked
+                // on its last row and a half with the drop slot moved off its place. Vanilla's
+                // CenterOnItem skips a ScrollRect that cannot scroll vertically.
+                _wasVertical = owner.vertical;
+                owner.vertical = false;
+                owner.StopMovement();
+                if (owner.content != null)
+                {
+                    owner.content.anchoredPosition = new Vector2(owner.content.anchoredPosition.x, 0f);
+                }
             }
 
             Plugin.Log.LogDebug(
@@ -213,6 +229,8 @@ namespace BottomlessChest.Gui
 
             if (_detachedFrom != null)
             {
+                _detachedFrom.vertical = _wasVertical;
+
                 if (_hadBar)
                 {
                     _detachedFrom.verticalScrollbar = _bar;
