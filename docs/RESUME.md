@@ -159,6 +159,35 @@ has to be read with that in mind.
           - Place Stacks;
           - the near-spawn server-owned kiln;
           - coal accumulating over several minutes, checked against wood consumed.
+      - **B9 run 4 (2026-09-14), kiln `productionSpeed` set to 1 in both V+ configs:**
+        - **Passed:** coal accumulates in the chest; Place Stacks appeared to work (not yet
+          checked in the store).
+        - **Changed:** drag-out now drops on the ground, as vanilla does (`d846f6c`). A take
+          carries a drop-on-arrival flag the server echoes in `Granted`.
+        - **Open: the window scrolls by itself.** It pages down (`Player.log` shows page requests
+          for rows 1, 2, 4, 5, 6… at the same version) and snaps to "last row plus half the one
+          above". The half row means the grid's live `ScrollRect` content moved, not our paging.
+          The user says it predates today's builds. They own a controller but have not used it;
+          no controller evidence in `Player.log`. Debug-only diagnostics are in `4ecdb60`:
+          `ScrollTo` logs its callers, and `ChestScrollbarBridge` logs content moves with the
+          selected element and gamepad state. **Remove them, or keep them deliberately, once the
+          cause is found.**
+        - **Not bugs, but real gaps for 0.3.0:**
+          - **Gamepad support.** The user wants gamepads supported as far as possible. Vanilla's
+            grid clamps gamepad selection to the 4 visible rows and jumps to the next grid, and
+            the mod adds no paging, so a gamepad cannot reach past the first page. Also wire the
+            search box to the build panel's gamepad key (`JoyLStick` / F) and its hint, rather
+            than hiding the hint (this reverses C18's "just hide it").
+          - **Live refresh.** A remote window is not updated while a station changes the chest;
+            single-player shows changes live because the window is the real inventory. The
+            server could push a page or counts to the viewing peer after `TakeByName` and
+            `DepositForward`, throttled.
+          - **Take All on a server takes only the visible page**, capped to free inventory
+            slots. This has been true since 0.2.x. The option is a server-side Take All over
+            everything the search matches, up to the slots free.
+          - **Travel for testing.** Vanilla `goto`, `debugmode` and `fly` are all cheat-only and
+            not remote commands, so they cannot run from a dedicated server's client. Use a
+            portal pair, or consider a testing-gated `bottomless goto`.
       - **Still to run** after deploying `390697b`: steps 2–7 of the B9 list (build menu,
         crafting open and closed, kiln pull and coal deposit, Place Stacks, a server-owned kiln
         near spawn, then save).
