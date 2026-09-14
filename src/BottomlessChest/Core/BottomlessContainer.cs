@@ -32,6 +32,7 @@ namespace BottomlessChest.Core
         private bool _contentsLoaded;
         private bool _warnedAboutUnloadedSave;
         private bool _loadWasPartial;
+        private bool _warnedAboutSplitCopies;
         private readonly ContentsWatch _watch = new ContentsWatch();
 
 
@@ -55,6 +56,31 @@ namespace BottomlessChest.Core
             found = null;
             return false;
         }
+
+        /// <summary>
+        /// Finds a chest whose contents this machine has actually loaded, by store id.
+        /// </summary>
+        /// <remarks>
+        /// A session uses this chest's inventory rather than loading its own. A chest that is
+        /// registered but not yet loaded does not qualify: its inventory is empty, and it will
+        /// take over the session's contents itself when it loads.
+        /// </remarks>
+        internal static bool TryResolveLoaded(string storeId, out BottomlessContainer found)
+        {
+            foreach (var candidate in Registry.Values)
+            {
+                if (candidate._contentsLoaded && candidate._container != null && candidate.CurrentStoreId == storeId)
+                {
+                    found = candidate;
+                    return true;
+                }
+            }
+
+            found = null;
+            return false;
+        }
+
+        internal bool LoadWasPartial => _loadWasPartial;
 
         /// <summary>Sends any debounced snapshot immediately, e.g. when the chest is closed.</summary>
         internal static void FlushAllPending()
@@ -343,6 +369,30 @@ namespace BottomlessChest.Core
                 InventoryCapacity.Apply(_container.m_inventory);
             }
 
+            // Every change made on this machine outside a session reaches the store through
+            // here - the host's own moves, ValheimPlus stations, console commands. A session
+            // sharing this inventory has to hear about them, or its index and order go stale.
+            if (ChestSessions.TryGet(storeId, out var session))
+            {
+                if (!ReferenceEquals(session.Inventory, _container.m_inventory))
+                {
+                    // Two separate copies again, which sharing exists to make impossible.
+                    // Writing ours would overwrite the session's changes, so do not.
+                    if (!_warnedAboutSplitCopies)
+                    {
+                        _warnedAboutSplitCopies = true;
+                        Plugin.Log.LogError(
+                            $"Chest {storeId} is held by a session with a separate copy of its " +
+                            "contents. Refusing to save this copy over the session's; this is a " +
+                            "bug in the mod.");
+                    }
+
+                    return;
+                }
+
+                session.OnExternalChange();
+            }
+
             var payload = Storage.InventorySerializer.Save(_container.m_inventory, storeId);
             if (payload == null)
             {
@@ -413,6 +463,52 @@ namespace BottomlessChest.Core
                 Plugin.Log.LogInfo(
                     $"Consolidated {collapsed} part-stack(s) on load; " +
                     $"{_container.m_inventory.m_inventory.Count} stack(s) left.");
+            }
+        }
+
+        /// <summary>
+        /// Takes on the contents of a session that opened this chest before it loaded here,
+        /// and hands the session this chest's inventory in exchange.
+        /// </summary>
+        /// <remarks>
+        /// The items are the session's own objects, copied across in the same order, so the
+        /// pages its client holds still name the same items. Only grid positions are rewritten.
+        /// </remarks>
+        private void AdoptSession(string storeId, ChestSession session)
+        {
+            _contentsLoaded = true;
+
+            if (ReferenceEquals(session.Inventory, _container.m_inventory))
+            {
+                _loadWasPartial = session.ReadOnly;
+                return;
+            }
+
+            try
+            {
+                // As on load: populating the inventory must not fire a save back.
+                _container.m_loading = true;
+                InventoryCapacity.Suspended = true;
+                _watch.Rebaseline();
+
+                // Copied first: clearing the destination before reading a list that happened
+                // to be the same object would empty the chest.
+                var incoming = new List<ItemDrop.ItemData>(session.Inventory.m_inventory);
+                var items = _container.m_inventory.m_inventory;
+                items.Clear();
+                items.AddRange(incoming);
+                _loadWasPartial = session.ReadOnly;
+
+                InventoryCapacity.Repack(_container.m_inventory);
+                InventoryCapacity.Apply(_container.m_inventory);
+                session.AdoptInventory(_container.m_inventory);
+
+                StoreTrace.Container("adopted open session", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
+            }
+            finally
+            {
+                _container.m_loading = false;
+                InventoryCapacity.Suspended = false;
             }
         }
 
@@ -503,6 +599,15 @@ namespace BottomlessChest.Core
             if (!SidecarStore.Instance.IsReady)
             {
                 return false;
+            }
+
+            // A session already holds this chest - a remote player opened it before it loaded
+            // here. Its contents are newer than the store's by however many changes it has
+            // made, so they are what this chest takes on, not the file.
+            if (ChestSessions.TryGet(storeId, out var session))
+            {
+                AdoptSession(storeId, session);
+                return true;
             }
 
             _contentsLoaded = true;

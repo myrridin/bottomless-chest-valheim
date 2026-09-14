@@ -18,7 +18,7 @@ namespace BottomlessChest.Commands
 
         public override string Help =>
             "bottomless list | here | probe | trace on [prefab] | trace off | rebind <storeId> | fill <stacks> [prefab] | empty | " +
-            "session-put [prefab]  (fill, empty and session-put are off by default; see the Testing " +
+            "session-put [prefab] | session-hold | session-release  (fill, empty and the session commands are off by default; see the Testing " +
             "section of the config)";
 
         public override void Run(string[] args)
@@ -58,6 +58,15 @@ namespace BottomlessChest.Commands
                     if (RequireCheats())
                     {
                         SessionPut(args);
+                    }
+
+                    break;
+
+                case "session-hold":
+                case "session-release":
+                    if (RequireCheats())
+                    {
+                        SessionHold(args[0].ToLowerInvariant() == "session-hold");
                     }
 
                     break;
@@ -251,6 +260,46 @@ namespace BottomlessChest.Commands
             Console.instance.Print(
                 $"  session went {before} -> {after} stacks" +
                 (after == before ? " - it merged into an existing stack; use an item the chest does not hold" : string.Empty));
+            Probe();
+        }
+
+        /// <summary>
+        /// Opens or releases a session on the nearest chest and leaves it that way.
+        /// </summary>
+        /// <remarks>
+        /// Holding one open is what a remote player with the chest open looks like from the
+        /// host. It lets the reverse of session-put be tested on one machine: change the chest
+        /// on the host while the session is held, then release it and check the change
+        /// survived the session writing the chest back.
+        /// </remarks>
+        private static void SessionHold(bool hold)
+        {
+            var chest = Nearest();
+            if (chest == null)
+            {
+                Console.instance.Print($"No bottomless chest within {SearchRadius}m.");
+                return;
+            }
+
+            if (!SidecarStore.IsServerAuthority)
+            {
+                Console.instance.Print("Session commands only run on the server authority.");
+                return;
+            }
+
+            var storeId = chest.CurrentStoreId;
+            if (hold)
+            {
+                Report(ChestSessions.Acquire(storeId) == null
+                    ? "Could not open a session on this chest; the store may not be ready yet."
+                    : "Holding a session open on this chest, as a remote player with it open would.");
+            }
+            else
+            {
+                ChestSessions.Release(storeId);
+                Report("Released the session on this chest.");
+            }
+
             Probe();
         }
 
