@@ -98,5 +98,38 @@ namespace BottomlessChest.Logic
 
             return total;
         }
+
+        /// <summary>
+        /// Deducts up to <paramref name="amount"/> and reports how much was actually taken.
+        /// </summary>
+        /// <remarks>
+        /// Never returns more than the index held. The caller answers another mod with this
+        /// number synchronously and only afterwards asks the server to make it true, so a
+        /// figure larger than the chest can honour would overdraw it. Erring low costs the
+        /// player a craft; erring high costs the chest.
+        /// </remarks>
+        public int Take(string itemId, int quality, int amount)
+        {
+            if (itemId == null || amount <= 0)
+            {
+                return 0;
+            }
+
+            var taken = 0;
+            for (var i = 0; i < _entries.Count && taken < amount; i++)
+            {
+                var entry = _entries[i];
+                if (entry.ItemId != itemId || (quality >= 0 && entry.Quality != quality))
+                {
+                    continue;
+                }
+
+                var from = entry.Count < amount - taken ? entry.Count : amount - taken;
+                _entries[i] = new IndexEntry(entry.ItemId, entry.Quality, entry.Count - from);
+                taken += from;
+            }
+
+            return taken;
+        }
     }
 }

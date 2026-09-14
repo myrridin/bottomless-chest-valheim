@@ -65,5 +65,62 @@ namespace BottomlessChest.Tests
         {
             Assert.Empty(ChestIndex.From(1, new IStorableItem[0]).Entries);
         }
+
+        [Fact]
+        public void TakingLessThanHeldReturnsWhatWasAsked()
+        {
+            var index = ChestIndex.From(1, new[] { Item("Wood", 100) });
+
+            Assert.Equal(30, index.Take("Wood", -1, 30));
+            Assert.Equal(70, index.CountOf("Wood", -1));
+        }
+
+        [Fact]
+        public void TakingMoreThanHeldReturnsOnlyWhatWasThere()
+        {
+            // The invariant the optimistic write rests on: never claim more than exists.
+            var index = ChestIndex.From(1, new[] { Item("Wood", 10) });
+
+            Assert.Equal(10, index.Take("Wood", -1, 999));
+            Assert.Equal(0, index.CountOf("Wood", -1));
+        }
+
+        [Fact]
+        public void TakingWhatIsNotHeldTakesNothing()
+        {
+            var index = ChestIndex.From(1, new[] { Item("Wood", 10) });
+
+            Assert.Equal(0, index.Take("Stone", -1, 5));
+            Assert.Equal(10, index.CountOf("Wood", -1));
+        }
+
+        [Fact]
+        public void TakingSpreadsAcrossQualitiesWhenQualityIsNotSpecified()
+        {
+            var index = ChestIndex.From(1, new[] { Item("SwordIron", 2, quality: 1), Item("SwordIron", 2, quality: 3) });
+
+            Assert.Equal(3, index.Take("SwordIron", -1, 3));
+            Assert.Equal(1, index.CountOf("SwordIron", -1));
+        }
+
+        [Fact]
+        public void TakingARequestedQualityLeavesTheOthersAlone()
+        {
+            var index = ChestIndex.From(1, new[] { Item("SwordIron", 2, quality: 1), Item("SwordIron", 2, quality: 3) });
+
+            Assert.Equal(2, index.Take("SwordIron", 3, 5));
+            Assert.Equal(2, index.CountOf("SwordIron", 1));
+            Assert.Equal(0, index.CountOf("SwordIron", 3));
+        }
+
+        [Fact]
+        public void TakingZeroOrLessTakesNothing()
+        {
+            var index = ChestIndex.From(1, new[] { Item("Wood", 10) });
+
+            Assert.Equal(0, index.Take("Wood", -1, 0));
+            Assert.Equal(0, index.Take("Wood", -1, -5));
+            Assert.Equal(10, index.CountOf("Wood", -1));
+        }
     }
 }
