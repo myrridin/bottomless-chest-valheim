@@ -60,5 +60,8 @@ namespace BottomlessChest.Net
 
         /// <summary>Server could not keep a forwarded item and sends it back to be dropped.</summary>
         DepositRefused = 17,
+
+        /// <summary>Server declined an offered item. The client keeps it and may offer it again.</summary>
+        PutRefused = 18,
     }
 }

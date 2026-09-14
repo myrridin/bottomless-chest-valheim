@@ -285,6 +285,13 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            if (!SidecarStore.IsServerAuthority)
+            {
+                // Place Stacks offers go out one at a time; something has to send the next one
+                // when a reply lands or a timeout passes, even with no chest window open.
+                Filter.ChestView.TickOffers();
+            }
+
             RefreshIndex();
 
             if (!ContentsWatch.Enabled)

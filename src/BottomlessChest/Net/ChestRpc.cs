@@ -334,14 +334,18 @@ namespace BottomlessChest.Net
                 {
                     var itemBytes = package.ReadByteArray();
 
+                    // Every path that does not accept answers PutRefused. The client holds the
+                    // item reserved until it hears back, so silence would strand it.
                     if (!ChestSessions.TryGet(storeId, out var session))
                     {
+                        SendPutRefused(sender, storeId);
                         break;
                     }
 
                     if (RefusesToChange(session, sender, "a deposit"))
                     {
                         // Anything but Accepted leaves the item with the sender.
+                        SendPutRefused(sender, storeId);
                         SendPage(sender, session, -1);
                         break;
                     }
@@ -356,6 +360,7 @@ namespace BottomlessChest.Net
                             $"Could not read a deposit into chest {storeId}; refusing it so the " +
                             "sender keeps the item.");
 
+                        SendPutRefused(sender, storeId);
                         SendPage(sender, session, -1);
                         break;
                     }
@@ -456,6 +461,13 @@ namespace BottomlessChest.Net
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
                     {
+                        // Answered even so: the client sends one offer at a time and holds
+                        // every offered item until this chest replies.
+                        var none = new ZPackage();
+                        none.Write((int)ChestMessage.Stacked);
+                        none.Write(storeId);
+                        none.Write(0);
+                        _rpc.SendPackage(sender, none);
                         break;
                     }
 
@@ -624,6 +636,14 @@ namespace BottomlessChest.Net
             }
 
             yield break;
+        }
+
+        private static void SendPutRefused(long peer, string storeId)
+        {
+            var refused = new ZPackage();
+            refused.Write((int)ChestMessage.PutRefused);
+            refused.Write(storeId);
+            _rpc.SendPackage(peer, refused);
         }
 
         /// <summary>Sends fresh totals without disturbing the layout the client is showing.</summary>
@@ -901,6 +921,10 @@ namespace BottomlessChest.Net
 
                 case ChestMessage.Accepted:
                     Filter.ChestView.ApplyAccepted();
+                    break;
+
+                case ChestMessage.PutRefused:
+                    Filter.ChestView.ApplyPutRefused();
                     break;
 
                 case ChestMessage.DepositRefused:

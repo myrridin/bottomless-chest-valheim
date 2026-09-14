@@ -31,7 +31,7 @@ namespace BottomlessChest.Core
                 }
 
                 Plugin.Log.LogDebug($"Deposit requested for chest {bottomless.CurrentStoreId}.");
-                return !ChestView.RequestStackAll(bottomless.CurrentStoreId);
+                return !ChestView.RequestStackAll(bottomless.CurrentStoreId, message: true);
             }
         }
     }

@@ -31,7 +31,7 @@ namespace BottomlessChest.Core
                     return true;
                 }
 
-                return !ChestView.RequestStackAll(bottomless.CurrentStoreId);
+                return !ChestView.RequestStackAll(bottomless.CurrentStoreId, message: false);
             }
         }
     }
