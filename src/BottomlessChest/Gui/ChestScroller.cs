@@ -4,7 +4,7 @@ using UnityEngine;
 namespace BottomlessChest.Gui
 {
     /// <summary>
-    /// Scrolls the chest window with the mouse wheel.
+    /// Scrolls the chest window with the mouse wheel and the gamepad's right stick.
     /// </summary>
     /// <remarks>
     /// The grid is a fixed-height window onto the contents, so scrolling moves the window
@@ -24,6 +24,50 @@ namespace BottomlessChest.Gui
             ChestView.Tick();
 
             ScrollWithWheel();
+            ScrollWithRightStick();
+        }
+
+        private const float StickThreshold = 0.5f;
+        private const float StickFirstRepeat = 0.35f;
+        private const float StickRepeat = 0.12f;
+
+        private bool _stickHeld;
+        private float _nextStickStep;
+
+        /// <summary>
+        /// The right stick scrolls the chest, a row at a time, repeating while held.
+        /// </summary>
+        /// <remarks>
+        /// The left stick already moves the selection across the grid; vanilla clamps that to
+        /// the rows on screen, so without this a gamepad could never reach past the first page.
+        /// Only while a gamepad is the active device, so a drifting stick cannot scroll the
+        /// chest under a mouse user. Valheim reports the stick's Y inverted: pushed up is
+        /// negative.
+        /// </remarks>
+        private void ScrollWithRightStick()
+        {
+            if (!ZInput.IsGamepadActive())
+            {
+                _stickHeld = false;
+                return;
+            }
+
+            var y = ZInput.GetJoyRightStickY();
+            if (Mathf.Abs(y) < StickThreshold)
+            {
+                _stickHeld = false;
+                return;
+            }
+
+            var now = Time.unscaledTime;
+            if (_stickHeld && now < _nextStickStep)
+            {
+                return;
+            }
+
+            _nextStickStep = now + (_stickHeld ? StickRepeat : StickFirstRepeat);
+            _stickHeld = true;
+            ChestView.Scroll(y < 0f ? -1 : 1);
         }
 
         /// <summary>Wheel movement not yet adding up to a whole notch.</summary>
