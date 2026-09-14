@@ -82,6 +82,36 @@ namespace BottomlessChest.Core
             return Outcome.RunVanilla;
         }
 
+        /// <summary>
+        /// Dragging an item out of the window, onto the world.
+        /// </summary>
+        /// <remarks>
+        /// Vanilla drops through <c>Humanoid.DropItem</c> with the page as the inventory: it
+        /// removes the page's copy and spawns that on the ground, and the server - which still
+        /// holds the item - is never told. The item was on the floor and still in the chest.
+        ///
+        /// Turned into the same take a drag into the inventory makes, so the server hands the
+        /// item over. It arrives in the player's inventory rather than on the ground; a player
+        /// who wanted it on the floor can drop it from there, and nothing is duplicated. Vanilla
+        /// never runs for a page, even when the item cannot be found on it.
+        /// </remarks>
+        [HarmonyPatch(typeof(Humanoid), nameof(Humanoid.DropItem),
+            new[] { typeof(Inventory), typeof(ItemDrop.ItemData), typeof(int) })]
+        private static class DropOutside
+        {
+            private static bool Prefix(Inventory inventory, ItemDrop.ItemData item, int amount, ref bool __result)
+            {
+                if (Plugin.Degraded || item == null || !ChestView.IsRemotePage(inventory))
+                {
+                    return true;
+                }
+
+                __result = amount > 0
+                    && Intercept(null, inventory, item, amount >= item.m_stack ? 0 : amount) == Outcome.Sent;
+                return false;
+            }
+        }
+
         [HarmonyPatch(typeof(Inventory), nameof(Inventory.MoveItemToThis),
             new[] { typeof(Inventory), typeof(ItemDrop.ItemData) })]
         private static class MoveWhole
