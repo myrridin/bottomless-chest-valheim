@@ -153,6 +153,130 @@ What has to be true for this to happen, and is **not yet established**:
   through a session earlier, the host sees stale contents, and any change the host makes
   saves the stale copy. Check this case first — it would be a 0.2.0 bug, not a V+ one.
 
+### A1 progress — 2026-09-14
+
+**Status:** confirmed in run 2 (below). Diagnostics built; fix design pending. The diagnostic commands and this section are **not committed** yet.
+
+**Hypothesis.** On any server authority that has a chest loaded, a change made through a
+`ChestSession` reaches the store but not the loaded `Container` copy, so the next
+`Container.Save` writes the stale copy over it.
+
+**Established from source**, not yet from the game:
+
+- The authority works on the `Container` copy directly — `ChestView.cs:242-245` sets
+  `_remote` only when not the authority.
+- That copy loads once. `_contentsLoaded` is reset only by `Rebind`
+  (`BottomlessContainer.cs:129`), the console recovery path.
+- Nothing links the copies. Three places write the store — `BottomlessContainer.cs:271`
+  (legacy adoption), `:348` (`SaveToStore`), `ChestSessions.cs:130` (`Persist`) — and nothing
+  listens for changes.
+- Vanilla re-checks each container every second and reloads when its ZDO revision changes
+  (v1.0.cs 121883, 121939, 122264). Our `Load` patch never reloads, and sessions never touch
+  the ZDO, so there is no signal to reload on even if it did.
+- A session persists when its player closes the chest (`ChestRpc` Close → `Release` →
+  `Persist`) and on idle expiry.
+- **Shipped in 0.1.0.** `9065391`, which introduced sessions, is an ancestor of `v0.1.0`.
+- **Dedicated servers are exposed near world origin.** Their reference position never leaves
+  `Vector3.zero` (only a spawning player, `Player.LateUpdate` or a `Tracker` moves it), and
+  `ZNetScene` instantiates around it (82370). `ZDOMan.ReleaseNearbyZDOS` runs for the server
+  first (76925) and claims unowned persistent objects in its area; peers only take objects
+  outside the owner's area (76946). A base near the world centre therefore has its chests
+  loaded, and its stations owned, by the server itself.
+- That answers **A2** in principle: near origin, the dedicated server runs V+ stations;
+  elsewhere, a player does; on a player-hosted server, the host owns its own surroundings.
+
+**Where it would bite, if confirmed:**
+
+| Setup | Trigger | Result |
+|---|---|---|
+| Player-hosted, no V+ | Host changes a chest a remote player changed since the host loaded it | Remote player's changes overwritten. Since 0.1.0. |
+| Player-hosted, or dedicated near origin, with V+ 10.1.2 | Owner-run station pulls from a chest after a session changed it | Session's changes overwritten |
+| Same | Station pulls while a session is open, then the session closes | Station's removal reverted — the items reappear |
+| Dedicated, away from origin | — | Unreachable: the server never loads the chest |
+
+**The repro, single-player** (the local player is the server authority, so it reproduces the
+host case exactly):
+
+- `bottomless probe` prints the nearest chest's `Container` copy, store entry and any open
+  session side by side. Read-only, ungated.
+- `bottomless session-put [prefab]` runs the server's side of a remote deposit — `Acquire`,
+  `Deposit`, `Persist`, `Release` — then probes. Gated like `fill`. Use an unstackable prefab
+  such as `SwordIron` so the deposit always adds a stack.
+- CasualSolo's store is a **Steam cloud** save:
+  `/mnt/c/Program Files (x86)/Steam/userdata/31215322/892970/remote/worlds/CasualSolo.bottomless.dat`.
+  Backed up, byte-identical, to `/mnt/c/valheim_mods/backup-2026-09-14-pre-A1-CasualSolo-stores/`.
+  Its stores: `618d88dd…` 114 stacks (still format 106), `28c36484…` 9,973 stacks, two empty.
+
+Expected if the bug is real: after `session-put`, probe shows the container copy one stack
+short of the store. Taking any stack out of the chest then saves the stale copy, and the store
+drops **two** stacks below its post-deposit count rather than one. `dump-store.py` on the file
+after quitting to the menu is the final witness.
+
+### A1 run 1 — result: divergence confirmed, overwrite not observed
+
+On CasualSolo, chest `28c36484…` (9,973 filler stacks), as the user transcribed the probes:
+
+| Step | Container copy | Store |
+|---|---|---|
+| Probe before | 9,973 | 9,973 |
+| After `session-put SwordIron` | 9,973 | **9,974** |
+| After taking one stack out | 9,972 | 9,973 (labelled "session" in the transcription) |
+
+The second row confirms the copies diverge, in game.
+
+**The file contradicts the expected overwrite.** After quitting, the store file (written
+11:12:33) holds chest `28c36484…` at 9,973 stacks and 141,133 bytes, against 141,135 in the
+pre-repro backup. Counting prefab hashes in the payload — each 1.0 item writes
+`m_dropPrefab.name.GetStableHashCode()` as a raw int32 (v1.0.cs 69383; the hash function is in
+`assembly_utils`) — gives `SwordIron` **14 before, 15 after**, with every other prefab checked
+unchanged (common materials all 14–15, which validates the hash). `.old` is byte-identical to
+the backup. So the session's deposit **and** the take both reached disk.
+
+That fits neither prediction as written. Either the third probe's transcription is off, or the
+chest was unloaded and reloaded from the store between `session-put` and the take, which would
+mask the bug. Run 2 uses `bottomless trace` so the log records every load and write with object
+identities instead of relying on retyped console output.
+
+### A1 run 2 — CONFIRMED: the stale container copy overwrites session changes
+
+Same chest (`28c36484…`), with `bottomless trace on SwordIron`, take by **ctrl-click** (a stack
+of bronze arrows). From `LogOutput.log`:
+
+```
+[probe]   container copy : inv@e771d938 9973 stacks, 2219874 items, SwordIron x15
+[trace] session opened store 28c36484 v0: inv@6ec92850 9973 stacks, 2219874 items, SwordIron x15
+[trace] session persist wrote store 28c36484 v1: inv@6ec92850 9974 stacks, 2219875 items, SwordIron x16
+[trace] session released store 28c36484 v1: inv@6ec92850 9974 stacks, 2219875 items, SwordIron x16
+[probe]   container copy : inv@e771d938 9973 stacks, 2219874 items, SwordIron x15
+[probe]   store          : 9974 stacks
+[trace] container #-37674 save wrote store 28c36484: ... inv@e771d938 9972 stacks, 2218874 items, SwordIron x15
+[probe]   store          : 9972 stacks
+Saved 4 chest store(s), 143KB, in 132ms.
+```
+
+The container copy is the same object throughout (`inv@e771d938`); it was never reloaded. The
+ctrl-click saved it wholesale over the store, and the session's sword went with it. The file
+agrees: after quitting, chest `28c36484…` holds 9,972 stacks with `SwordIron` **15** (the store
+had 16) and `ArrowBronze` 14 → 13. `.old` is the run-1 end state.
+
+**Root cause.** On the server authority, `BottomlessContainer` holds the chest as a copy loaded
+once, and `ChestSession` holds a second; both write the whole store entry, and neither refreshes
+the other. Any change the host makes after a session has changed the chest writes the host's
+stale copy over it. Reachable since 0.1.0 on player-hosted servers, and on dedicated servers
+near world origin once V+ 10.1.2 stations run there.
+
+**Run 1, unexplained.** Its file shows the session's sword surviving and the take applied, which
+only a session copy could have written, and its third probe showed a session open. Its log was
+overwritten when the game restarted to install Skip Intro Video, so there is nothing to trace.
+The take method differed (not recorded; run 2 was ctrl-click). Retest other take methods —
+drag, shift-click, Take All — when verifying the fix.
+
+Backups: `backup-2026-09-14-pre-A1-CasualSolo-stores/` (before run 1) and
+`backup-2026-09-14-A1-after-run1-CasualSolo-stores/`.
+
+**Next: the fix needs a decision** — see the conversation of 2026-09-14; options are one shared
+inventory per chest on the authority, or refreshing the other copy at every store write.
+
 ---
 
 ## ValheimPlus 10.1.2 — what the inspection found
