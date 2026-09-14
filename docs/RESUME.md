@@ -253,6 +253,12 @@ has to be read with that in mind.
 
       Re-review after B9's fixes.
 
+      **Test config (2026-09-14, user's choice):** every V+ per-item timer set to 5 seconds in
+      both the client profile's and the server's `org.bepinex.plugins.valheim_plus.cfg` (md5
+      `fd0f9e84`, CRLF): `productionSpeed` for Kiln (was 1), Smelter, Furnace, EitrRefinery,
+      SpinningWheel, Windmill (were 60), and Beehive `honeyProductionSpeed`, Fermenter
+      `fermenterDuration`, SapCollector `sapProductionSpeed` (were 60).
+
       Round 2 (2026-09-14, after B9 and C19; `release-0.3.0` vs `main`, 58 commits) found one,
       Low, fixed:
       - A V+ station on the chest's authority (host, or dedicated server near the world's
