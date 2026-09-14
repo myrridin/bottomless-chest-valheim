@@ -10,6 +10,12 @@ namespace BottomlessChest.Settings
     /// </summary>
     internal static class ModConfig
     {
+        /// <summary>The wooden chest's cost, read from <c>piece_chest_wood</c>'s resources.</summary>
+        private const string DefaultRequirements = "Wood:10";
+
+        /// <summary>The default through 0.2.1. Never change: it identifies unedited configs.</summary>
+        private const string PreviousDefaultRequirements = "FineWood:20,BlackMetal:10,SurtlingCore:5";
+
         internal static ConfigEntry<string> RecipeRequirements;
         internal static ConfigEntry<float> ModelScale;
         internal static ConfigEntry<string> BodyTint;
@@ -50,8 +56,18 @@ namespace BottomlessChest.Settings
                     "it into bloom and reads as a light source.",
                     new AcceptableValueRange<float>(0f, 5f)));
 
-            RecipeRequirements = cfg.Bind("Crafting", "Requirements", "FineWood:20,BlackMetal:10,SurtlingCore:5",
+            RecipeRequirements = cfg.Bind("Crafting", "Requirements", DefaultRequirements,
                 "Build cost, as Item:Amount pairs separated by commas. Item names are prefab names, not display names.");
+
+            // 0.3.0 made the chest cost what a wooden chest does. Players who never edited the
+            // cost get the new one; anyone who set their own keeps it.
+            var upgraded = Logic.ConfigDefaults.Upgrade(
+                RecipeRequirements.Value, PreviousDefaultRequirements, DefaultRequirements);
+            if (upgraded != RecipeRequirements.Value)
+            {
+                RecipeRequirements.Value = upgraded;
+                Plugin.Log.LogInfo($"Build cost was the old default; updated to {upgraded}.");
+            }
         }
 
         /// <summary>

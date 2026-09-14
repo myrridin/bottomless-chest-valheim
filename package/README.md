@@ -44,7 +44,7 @@ Hammer, under Furniture, at a workbench. The cost is configurable.
 
 | Setting | Default | |
 |---|---|---|
-| `Crafting.Requirements` | `FineWood:20,BlackMetal:10,SurtlingCore:5` | Build cost, as prefab names |
+| `Crafting.Requirements` | `Wood:10` | Build cost, as prefab names |
 | `Appearance.ModelScale` | `1.0` | Size of the chest model |
 | `Appearance.BodyTint` | `#C4C2BC` | Colour over the chest body |
 | `Appearance.LidTint` | `#2E2E33` | Colour over the lid |
