@@ -300,7 +300,12 @@ has to be read with that in mind.
       Fix in `SearchField.TryCloneVanilla`: deactivate every `UIGamePad.m_hint` in the clone
       and destroy the `UIGamePad` components. Found in the 0.2.1 default-log run.
 - [ ] **C19. Place Stacks is very slow on a big chest** — user chose to fix in 0.3.0.
-      **Implemented, not yet measured in game:** `Core/PlaceStacksPatches.cs`, on the authority
+      **Measured in game (2026-09-14, single-player CasualSolo, chest `28c36484`, 9,976
+      stacks): vanilla path 9,520 ms, fast path 21 ms**, similar but not identical deposits.
+      The store decoded cleanly after save: 9,975 stacks before and after, 705 kinds, 11 kinds'
+      totals moved by the player's takes and deposits (net +9 items). Item conservation
+      across chest and player was not checked, since there is no pre-run copy of the player
+      file. Commit `0dfdfd9`. Implementation: `Core/PlaceStacksPatches.cs`, on the authority
       for unbounded inventories only: `FindEmptySlot` via `GridPacker.FirstEmptySlot` (tested
       against a vanilla scan on random layouts); `AddItem(item)` merging a stack at a time; and
       one save per `StackAll`, deferred in `ContainerPersistencePatches.SavePatch` and flushed
