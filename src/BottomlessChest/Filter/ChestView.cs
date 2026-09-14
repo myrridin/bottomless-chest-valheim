@@ -667,8 +667,21 @@ namespace BottomlessChest.Filter
                 {
                     // Where vanilla's Humanoid.DropItem puts a dragged-out item: just ahead of
                     // the player, at chest height.
+                    // The rest is what Humanoid.DropItem does next: mark it as dropped by the
+                    // player so auto-pickup leaves it alone, and throw it forward. Without both
+                    // the item landed at the player's feet and was picked straight back up.
                     var body = Player.m_localPlayer.transform;
-                    ItemDrop.DropItem(item, item.m_stack, body.position + body.forward + body.up, body.rotation);
+                    var dropped = ItemDrop.DropItem(item, item.m_stack, body.position + body.forward + body.up, body.rotation);
+                    if (dropped != null)
+                    {
+                        dropped.OnPlayerDrop();
+                        var rigidbody = dropped.GetComponent<Rigidbody>();
+                        if (rigidbody != null)
+                        {
+                            rigidbody.linearVelocity = (body.forward + Vector3.up) * (item.GetWeight() >= 300f ? 0.5f : 5f);
+                        }
+                    }
+
                     continue;
                 }
 
