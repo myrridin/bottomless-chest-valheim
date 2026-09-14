@@ -344,6 +344,12 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
+            if (Core.DebugLogging.Enabled)
+            {
+                // B9 diagnostic: a remote chest scrolled itself with nobody touching it.
+                Plugin.Log.LogDebug($"ScrollTo row {row} (from {_scrollRow}), called by {Caller()}.");
+            }
+
             if (_remote)
             {
                 _scrollRow = clamped;
@@ -358,6 +364,34 @@ namespace BottomlessChest.Filter
         }
 
         internal static int MaxScroll => MaxScrollRow();
+
+        /// <summary>The few methods above the caller, for a diagnostic line. Debug logging only.</summary>
+        private static string Caller()
+        {
+            var frames = new System.Diagnostics.StackTrace(2, false).GetFrames();
+            if (frames == null)
+            {
+                return "?";
+            }
+
+            var names = new List<string>(4);
+            foreach (var frame in frames)
+            {
+                var method = frame.GetMethod();
+                if (method == null)
+                {
+                    continue;
+                }
+
+                names.Add($"{method.DeclaringType?.Name}.{method.Name}");
+                if (names.Count == 4)
+                {
+                    break;
+                }
+            }
+
+            return string.Join(" < ", names);
+        }
 
         /// <summary>Asks for a page, no more often than the interval allows.</summary>
         private static void RequestPageThrottled()
