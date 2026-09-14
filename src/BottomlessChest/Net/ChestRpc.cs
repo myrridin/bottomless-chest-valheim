@@ -534,7 +534,7 @@ namespace BottomlessChest.Net
 
                     // Every client asks about every chest it can see, once a second. Answering
                     // an unchanged chest would rebuild and resend it for nothing.
-                    if (session.Generation == heldGeneration && session.Version == heldVersion)
+                    if (session.Generation == heldGeneration && session.ContentsVersion == heldVersion)
                     {
                         break;
                     }

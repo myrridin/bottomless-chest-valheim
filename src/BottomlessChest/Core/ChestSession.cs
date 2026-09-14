@@ -59,8 +59,20 @@ namespace BottomlessChest.Core
         /// </remarks>
         internal bool ReadOnly { get; set; }
 
-        /// <summary>Bumped on every change, so clients can detect they acted on stale data.</summary>
+        /// <summary>
+        /// Bumped whenever an item's position in the order may have moved, so a client quoting
+        /// a page index can be told it is stale.
+        /// </summary>
+        /// <remarks>
+        /// Not bumped when only a count changes in place. A ValheimPlus kiln takes wood from the
+        /// chest every tick; bumping on each of those made every take the player tried while it
+        /// ran look stale, and each was refused. An index still names the same stack after its
+        /// count drops, and a take is measured against the real stack, never the client's.
+        /// </remarks>
         internal long Version { get; private set; }
+
+        /// <summary>Bumped on every change at all, counts included. What the index is keyed on.</summary>
+        internal long ContentsVersion { get; private set; }
 
         /// <summary>
         /// Which session this is, so a summary can be ordered against one from an earlier
@@ -88,9 +100,9 @@ namespace BottomlessChest.Core
         {
             get
             {
-                if (_index == null || _index.Version != Version)
+                if (_index == null || _index.Version != ContentsVersion)
                 {
-                    _index = ChestIndex.From(Generation, Version, Adapt(Inventory.m_inventory));
+                    _index = ChestIndex.From(Generation, ContentsVersion, Adapt(Inventory.m_inventory));
                 }
 
                 return _index;
@@ -136,9 +148,17 @@ namespace BottomlessChest.Core
             _orderDirty = true;
         }
 
+        /// <summary>Records a count changing in place: nothing moved, so no page is stale.</summary>
+        internal void TouchCounts()
+        {
+            ContentsVersion++;
+            _weightDirty = true;
+        }
+
         internal void Touch()
         {
             Version++;
+            ContentsVersion++;
             _orderDirty = true;
             _weightDirty = true;
         }
@@ -273,6 +293,7 @@ namespace BottomlessChest.Core
 
             var items = Inventory.m_inventory;
             var taken = 0;
+            var removedStack = false;
 
             for (var i = items.Count - 1; i >= 0 && taken < amount; i--)
             {
@@ -297,6 +318,7 @@ namespace BottomlessChest.Core
                 {
                     items.RemoveAt(i);
                     Forget(item);
+                    removedStack = true;
                 }
                 else
                 {
@@ -304,9 +326,13 @@ namespace BottomlessChest.Core
                 }
             }
 
-            if (taken > 0)
+            if (removedStack)
             {
                 Touch();
+            }
+            else if (taken > 0)
+            {
+                TouchCounts();
             }
 
             return taken;
@@ -425,7 +451,8 @@ namespace BottomlessChest.Core
 
                 if (item.m_stack <= 0)
                 {
-                    Touch();
+                    // Wholly absorbed into a stack already there: a count changed, nothing moved.
+                    TouchCounts();
                     return;
                 }
             }
