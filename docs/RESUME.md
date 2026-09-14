@@ -7,8 +7,9 @@ session, with nothing else in hand.
 
 **0.2.1 is shipped and merged into this branch.** 0.3.0 work on `release-0.3.0`:
 - A1, A3 and B4–B8 are done: craft-from-chest for ValheimPlus 10.1.2 is implemented.
-- B9, the dedicated-server test, is in progress and has found two shipped bugs, both fixed.
-- **Continue B9** (see its run notes), then B10 re-review, then C and D, then E.
+- B9, the dedicated-server test, is nearly done: run 8 passed; gamepad support is scoped and
+  finished; the temporary diagnostics are removed. Left: a server-owned kiln and the no-V+ path.
+- **Finish B9**, then B10 re-review (user-triggered `/code-review`), then C and D, then E.
 - A2 is still open.
 
 A popular mod raises the cost of the standing rule: anyone on any earlier version must be
@@ -203,8 +204,10 @@ has to be read with that in mind.
           and a temporary `[pad]` hint dump (`3096cb7`) will name the bindings. Dropped items do
           not fly forward even with `OnPlayerDrop` and the velocity set (`cb260ee`); the user
           says a plain drop is fine, since vanilla looks similar.
-        - **Temporary diagnostics to remove before release:** `ScrollTo` caller logging,
+        - **Temporary diagnostics:** `ScrollTo` caller logging,
           `ChestScrollbarBridge.WatchContent`, and the `[pad]` dump in `SearchBox.Build`.
+          **Removed in `4e6458a`** (reverts of `4ecdb60`, `8af95d1`, `3096cb7`); the deployed
+          DLL `4f00821c` carries none of their strings.
       - **B9 runs 6–7 (2026-09-14): scrolling solid; controller support scoped.**
         - **The jump's real cause.** The page was registered unbounded on the client, and
           V+'s `ConveyContainerToNetwork` calls `Inventory.Changed` after every station
@@ -228,11 +231,17 @@ has to be read with that in mind.
           PC either.
         - **Empty last row fixed** (`b8f8262`): `GridPacker.LastPageRow`, tested and shared by
           the client and server clamps. Suite at 187.
-        - **Not yet verified in game:** `2a2bbc8` onward except the page-height fix, which was
-          verified in run 6. That leaves `b8f8262`, `addeaec` and `2970b2d`.
-      - **Still to run** after deploying `390697b`: steps 2–7 of the B9 list (build menu,
-        crafting open and closed, kiln pull and coal deposit, Place Stacks, a server-owned kiln
-        near spawn, then save).
+      - **B9 run 8 (2026-09-14), DLL `cb7a5cea` at `95f5802`:**
+        - **Passed:** the empty last row is gone (`b8f8262`); B closes the window (`2970b2d`);
+          right stick scrolls. User: "Everything else is working well enough."
+        - **Did not work, accepted:** holding the left stick against the edge still pages only
+          one row per press (`addeaec` has no visible effect). User: "that's fine". Not pursued;
+          the code is harmless and left in place.
+        - Server stopped gracefully, "Saved 11 chest store(s)". Store `c662fb15` decodes cleanly,
+          477 stacks: Wood 84,963, Stone 50,004, Coal 2,006, SurtlingCore 10,095, plus 30,000 of
+          one item outside the decoder's name table (the user's later fills).
+      - **Still to run:** a server-owned kiln near spawn (Task 9's remaining case), and the
+        no-V+ path (Task 9 step 8). Steps 2–6 of the B9 list passed across runs 3–6.
 - [ ] **B10. `/code-review` the branch.** Storage and network code; every round so far has
       found real defects that self-review did not.
 
