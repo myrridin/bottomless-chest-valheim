@@ -191,36 +191,9 @@ namespace BottomlessChest.Compat
                 return true;
             }
 
-            // ValheimPlus names items by their shared name token; the index is keyed by prefab
-            // name, because that is what the server stores. Resolved through the same
-            // templates the stand-ins are built from.
-            var asked = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var entry in index.Entries)
-            {
-                if (taken >= amount)
-                {
-                    break;
-                }
-
-                if (entry.Count <= 0 || !asked.Add(entry.ItemId))
-                {
-                    continue;
-                }
-
-                var template = ItemTemplates.For(entry.ItemId);
-                if (template == null || template.m_shared.m_name != sharedName)
-                {
-                    continue;
-                }
-
-                var got = index.Take(entry.ItemId, -1, amount - taken);
-                if (got > 0)
-                {
-                    Net.ChestRpc.TakeByName(storeId, index.Version, entry.ItemId, -1, got);
-                    taken += got;
-                }
-            }
-
+            // Any quality and any world level: ValheimPlus's own removal matches on the shared
+            // name alone, and these hooks stand in for exactly that removal.
+            taken = ChestContents.Take(storeId, index, sharedName, -1, amount, -1);
             return true;
         }
 
@@ -241,23 +214,12 @@ namespace BottomlessChest.Compat
 
                 for (var i = 0; i < index.Entries.Count; i++)
                 {
-                    // Through ItemTemplates so the stand-in carries the shared data
-                    // ItemDrop.Awake would have given it - stack size, weight - which other
-                    // mods may have adjusted.
-                    var template = ItemTemplates.For(index.Entries[i].ItemId);
-                    if (template == null)
+                    var standIn = ChestContents.StandIn(index.Entries[i]);
+                    if (standIn == null)
                     {
                         continue;
                     }
 
-                    var standIn = template.Clone();
-                    standIn.m_quality = index.Entries[i].Quality;
-
-                    // At the level and cheat state the chest really holds. Templates carry the
-                    // prefab's world level, which vanilla's "at or above the world's" filter
-                    // rejects in any world above level 0.
-                    standIn.m_worldLevel = index.Entries[i].WorldLevel;
-                    standIn.m_cheated = index.Entries[i].Cheated;
                     cached.Items.Add(standIn);
                     cached.EntryOf.Add(i);
                 }

@@ -54,6 +54,27 @@ namespace BottomlessChest.Core
 
         internal static IEnumerable<BottomlessContainer> Loaded => Registry.Values;
 
+        /// <summary>The loaded chest whose inventory this is, if any.</summary>
+        internal static bool TryResolveInventory(Inventory inventory, out BottomlessContainer found)
+        {
+            found = null;
+            if (inventory == null)
+            {
+                return false;
+            }
+
+            foreach (var candidate in Registry.Values)
+            {
+                if (candidate != null && ReferenceEquals(candidate.Inventory, inventory))
+                {
+                    found = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>Finds a loaded chest by its store id, for routing RPC replies.</summary>
         internal static bool TryResolveByStoreId(string storeId, out BottomlessContainer found)
         {

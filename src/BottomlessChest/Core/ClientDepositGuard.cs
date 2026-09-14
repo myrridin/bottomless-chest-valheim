@@ -66,15 +66,7 @@ namespace BottomlessChest.Core
                 return false;
             }
 
-            BottomlessContainer owner = null;
-            foreach (var candidate in BottomlessContainer.Loaded)
-            {
-                if (candidate != null && ReferenceEquals(candidate.Inventory, inventory))
-                {
-                    owner = candidate;
-                    break;
-                }
-            }
+            BottomlessContainer.TryResolveInventory(inventory, out var owner);
 
             var storeId = owner?.CurrentStoreId;
             if (string.IsNullOrEmpty(storeId))
