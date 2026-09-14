@@ -1,9 +1,42 @@
 # Craft from chest on dedicated servers
 
-**Status:** design, not yet implemented
-**Date:** 2026-09-02
-**Verified against:** ValheimPlus 0.9.17.1 (`Grantapher-ValheimPlus_Grantapher_Temporary`),
-Valheim 0.221.12, decompiled with `ilspycmd`. Line numbers below are from that decompile.
+**Status:** design; being implemented on `release-0.3.0` (index logic done)
+**Date:** 2026-09-02, re-derived 2026-09-14
+**Verified against:** first ValheimPlus 0.9.17.1 on Valheim 0.221.12; re-derived against
+ValheimPlus 10.1.2 on Valheim 1.0 (see below). Both decompiled with `ilspycmd`. Line numbers
+in the body are from the 0.9.17.1 decompile unless marked.
+
+## What changed with Valheim 1.0 and ValheimPlus 10.1.2
+
+The design holds. The seam is intact, and what moved is listed here. The implementation
+rulings that follow from it are in the plan's *Revision — 2026-09-14* section.
+
+- **The three hook points are unchanged** in body and parameter names. In 10.1.2:
+  - `GetNearbyChestItemsByContainerList` is at 1355;
+  - `RemoveItemFromChest(Container, ItemData, int)` at 1423;
+  - `RemoveItemFromChest(Container, string, int)` at 1455;
+  - `ConveyContainerToNetwork` at 1487.
+
+  The type is `ValheimPlus.InventoryAssistant`, internal. A new
+  `RemoveItemInAmountFromChests` (1249), used by stations, loops over `RemoveItemFromChest`,
+  so the write patches cover it.
+- **Removal ignores quality.** Both overloads match on `m_shared.m_name` alone, so the write
+  patches take any quality.
+- **Stations no longer run only on a client.** The *Non-goals* section below says every V+
+  station runs on a client. In 10.1.2 they run on whichever peer owns the station:
+  `Smelter_UpdateSmelter_Patch` (8674) returns unless `m_nview.IsOwner()`, and chests are found
+  by `GetNearbyChestsForMachine` (1167), which needs no local player. On a client that is this
+  design's problem, unchanged. Where the server owns the station, it also holds the chest's
+  real inventory, shared with any open session since 0.2.1, and the patches stay out of the way.
+- **The fourth seam is decided: forward the deposit.** 0.2.0 refuses these deposits on a
+  client (`ClientDepositGuard`), and V+ falls back to the ground. 0.3.0 forwards station output
+  to the server over dedicated messages, and refused deposits land on the ground at the chest.
+  Items from the player's own inventory are still refused: Place Stacks and V+'s new auto-stack
+  sweep (6060) deposit those through their own path.
+- **Index versions carry a session generation.** A session's version restarts at 0.
+- **A new risk, world level.** V+ counts only items at or above `Game.m_worldLevel`. The index
+  does not carry world level, so crafting from a bottomless chest is inert in a world whose world
+  level is above 0.
 
 ## Problem
 

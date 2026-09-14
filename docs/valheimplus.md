@@ -4,6 +4,40 @@ Findings from reading ValheimPlus 0.9.17.1 (`Grantapher-ValheimPlus_Grantapher_T
 rather than from waiting for symptoms. Re-derive this against a new V+ version before
 trusting it — the conclusions rest on specific implementation details.
 
+## Re-derived against ValheimPlus 10.1.2 (2026-09-14)
+
+The sections below were written against 0.9.17.1 and still hold except where this list says
+otherwise. Line numbers here are from the 10.1.2 decompile at
+`/mnt/c/valheim_mods/valheimplus-assemblies/10.1.2/ValheimPlus.cs`.
+
+- **`Inventory` constructor patch: gone.** It was replaced by a `Player.SetInventorySize`
+  transpiler (5950), so that row of the table no longer applies. The player's rows now come from
+  `[Inventory] playerInventoryRows`. At 8 rows the inventory window is tall enough to push the
+  chest panel down, and that is V+ layout, not ours.
+- **`Container.Awake`** (3969): the name switch is unchanged, so `$piece_bottomlesschest` still
+  escapes the clamp. New: a postfix copies the inventory size into `Container.m_width` and
+  `m_height`, which vanilla reads only as a floor in `UpdateRows`. Benign.
+- **`InventoryGrid.UpdateGui`** (3173): the stale-element nudge is unchanged. New:
+  `LayoutContainerScrollbar` widens the container panel only when the grid is wider than the
+  panel. Ours is 8 columns wide and fits, so it only restores the base values.
+- **Stations run on the station's owner** (`Smelter_UpdateSmelter_Patch` 8674 checks
+  `m_nview.IsOwner()`), and find chests with `GetNearbyChestsForMachine` (1167), which needs no
+  local player but does need a public container. The prefab is forced public for that reason
+  among others.
+- **Auto-stack sweep** (`AutoStackSweep`, 6060). With `[AutoStack] enabled`, Place Stacks
+  repeats itself on every chest within `autoStackAllRange` (up to 50 m). Each chest goes
+  `Container.StackAll()` → grant → `StackInto` (6301) → `Inventory.StackAll`, which moves items
+  with one-argument `AddItem`. On a client our Place Stacks path does the depositing and
+  `ClientDepositGuard` refuses the direct add. On the authority it is vanilla Place Stacks, which
+  is slow against a very large chest (0.3.0 plan item C19).
+- **Craft from chest on dedicated servers** is being implemented in 0.3.0. See
+  `docs/superpowers/specs/2026-09-02-craft-from-chest-on-dedicated-servers-design.md`. The
+  three `InventoryAssistant` hook points are unchanged (1355, 1423, 1455), and removal matches on
+  shared name only.
+- **Every direct-`AddItem` deposit site now ends in `ConveyContainerToNetwork`**: beehive
+  2787/2852, sap collector 3654, fermenter 5910, smelter 8657. When the add is refused they try
+  the next chest, then fall back to the ground.
+
 ## Overlapping patches
 
 V+ patches six methods that BottomlessChest also touches. Every row below was checked

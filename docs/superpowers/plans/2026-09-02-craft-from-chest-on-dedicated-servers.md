@@ -30,6 +30,138 @@ These are project invariants from `docs/` and the project plan. Every task inher
   Claude-Session: https://claude.ai/code/session_01UsnnVf949UHMBchnCv6Vfy
   ```
 
+## Revision — 2026-09-14, against Valheim 1.0 and ValheimPlus 10.1.2
+
+**This section overrides the task text below wherever they disagree.** The tasks were
+written on 2026-09-02 against Valheim 0.221.12 and ValheimPlus 0.9.17.1, before 0.2.0 and
+0.2.1. Tasks 1 and 2 are done on `release-0.3.0` (`9a23be0`, `765fbf4`; suite at 164).
+Every ruling gives why, and what it costs if wrong.
+
+### Global
+
+- **G1. Nothing that targets ValheimPlus carries `[HarmonyPatch]`.** `Plugin.Awake` runs
+  `PatchAll` over the whole assembly. A patch whose `TargetMethod` returns null (V+ absent)
+  throws there, and a throw in `PatchAll` puts the entire mod into degraded mode. The bridge
+  attaches each method with `harmony.Patch(...)`, each in its own try/catch. *Cost if wrong:
+  none; explicit attachment is never worse.*
+- **G2. Soft dependency on ValheimPlus:**
+  `[BepInDependency("org.bepinex.plugins.valheim_plus", BepInDependency.DependencyFlags.SoftDependency)]`
+  on `Plugin`, so its assembly has loaded before `Awake` looks for it. BepInEx loads each
+  plugin assembly just before instantiating that plugin, so without this the lookup can run
+  first and report V+ absent. The four never-change identifiers are untouched.
+- **G3. V+ 10.1.2 names the type `ValheimPlus.InventoryAssistant`** (internal static,
+  `ValheimPlus.cs` 1140), not `ValheimPlus.GameClasses.InventoryAssistant`. Try that name
+  first, then the old one. Parameter names are unchanged: `nearbyChests` (1355), and `chest`,
+  `needle`, `amount` on both `RemoveItemFromChest` overloads (1423, 1455).
+- **G4. Ignore the plan's test totals.** The suite was 164 after Task 2.
+- **G5.** `NetworkCompatibility` is `VersionStrictness.Minor`, so a 0.3.0 peer never talks to
+  a 0.2.x one. Message numbers still only append.
+
+### Task 3 — the cache
+
+- **In `BottomlessChest.Logic`, public** (Ruling 1).
+- **Ordered by generation, then version — not by version alone.** `ChestSession.Version`
+  starts at 0 in every new session, and sessions end on close and on idle release. Ordering
+  by version alone would ignore every index from a reopened session until its version passed
+  the old one, and keep the stale index meanwhile — the direction that overclaims.
+  `ChestIndex` gains `long Generation`; `From(long generation, long version, items)`. `Put`
+  keeps the held index only when it is strictly newer: higher generation, or the same
+  generation and a higher version. Update the Task 1 and 2 tests to pass a generation, and add
+  two: a newer generation with a lower version replaces; an older generation is ignored.
+  *Cost if wrong: one extra field on the wire.*
+
+### Task 4 — the wire
+
+- `IndexRequest = 13` carries the generation and version the client already holds (0, -1 when
+  it holds none). `IndexResult = 14` carries generation, version, count, then entries.
+- `ChestSession` gains `Generation`, taken at construction from a static counter seeded with
+  `DateTime.UtcNow.Ticks` and incremented per session, so it keeps rising across a server
+  restart. It also gains a cached `ChestIndex`, rebuilt only when `Version` has moved since the
+  last build.
+- **The server does not reply when the client is current.** Task 8 has every client ask about
+  every chest it can see once a second; rebuilding from the whole chest per request would cost
+  O(stacks) per client, per chest, per second.
+- `IndexedItem` as written.
+- **Known cost:** a client asking about a chest keeps its session alive (`Acquire` marks it
+  used), so every chest near any player stays in the server's memory. That is the same memory an
+  open chest already costs.
+
+### Tasks 5 and 6 — the bridge and the read patch (one unit, Ruling 3)
+
+- The bridge resolves the three methods and attaches each separately (G1). A method that fails
+  to resolve or attach costs only its own path.
+- **The read postfix first removes, from `__result`, every item that sits in a bottomless
+  chest's local inventory** (a `ReferenceEquals` set), then appends stand-ins from the index.
+  While a chest is open on the client, V+'s original already listed the page, so appending
+  alone counts those stacks twice. A bottomless chest without an index yet contributes nothing.
+- Stand-ins are `ItemTemplates.For(itemId).Clone()` with `m_stack` and `m_quality` set.
+  **Known limitation:** V+'s `GetItemAmountInItemList` counts only items with
+  `m_worldLevel >= Game.m_worldLevel`. The index does not carry world level, so in a world whose
+  world level is above 0 the stand-ins count as nothing. That is inert, not harmful.
+
+### Task 7 — the write patches
+
+- **Both prefixes take any quality (-1).** V+'s originals match on `m_shared.m_name` alone
+  (1423, 1455). Passing the needle's quality would refuse materials V+ itself would have taken,
+  because the needle is usually a template at quality 1.
+- **For a bottomless chest on a non-authority client, the prefix always handles the call** and
+  returns 0 when there is no index. The original must never run against a client's page. It
+  would remove page items locally, never on the server, and report them consumed.
+- Server `TakeByName = 15`: check `RefusesToChange` first (change nothing, still reply with the
+  index). Then `ChestSession.RemoveByName(itemId, quality, amount)`, which:
+  - matches `ItemAdapter.ItemId` (`m_dropPrefab.name`, falling back to `m_shared.m_name`);
+  - keeps the open-stack index current, forgetting a stack it empties and reopening one it
+    leaves part-full, as `Take` does;
+  - calls `Touch` once;
+  - is followed by `ChestSessions.Persist`.
+
+  Always reply with `IndexResult`.
+
+### Task 8 — freshness and deposits
+
+- **Ask about every bottomless chest instantiated on a non-authority client, once a second.
+  Drop the 50 m rule.** V+ stations run on the station's owner, and look for chests up to 50 m
+  from the *station*, which can be well beyond 50 m from the player. Anything V+ can find by
+  `Physics.OverlapSphere` is instantiated on this client, so that set is exactly right.
+  `Update` currently returns early unless `ContentsWatch.Enabled`; restructure it so only the
+  watch keeps that gate.
+- `OnDestroy`: `Indexes.Forget(storeId)`.
+- **Deposits get their own messages, not `Put`:** `DepositForward = 16` (store id, item bytes)
+  and `DepositRefused = 17` (store id, item bytes). The `Put` handler uses `TryGet`, so a chest
+  nobody has open drops the message and the item with it. And its `Accepted` reply makes the
+  client delete `_pendingPut`, which is the *player's* own in-flight deposit.
+  - Server: `Acquire`. If the chest refuses to change or the payload is unreadable, reply
+    `DepositRefused` with the original bytes. Otherwise `Deposit` each item and `Persist`.
+  - Client, on `DepositRefused`: drop each item on the ground with `ItemDrop.DropItem` at the
+    chest's position (the player's, if the chest is gone).
+- **`ClientDepositGuard` forwards only items that are not in the local player's inventory.**
+  Place Stacks and V+'s auto-stack sweep add the player's own items through `AddItem`, and the
+  offer path already deposits those. Forwarding them as well would deposit them twice. Player
+  items are refused, as today.
+- Widen `ChestRpc.Serialize` to internal, as written.
+- **Known:** a forwarded deposit in flight when the connection drops is lost, as any in-flight
+  put is.
+
+### Server-run stations (B7)
+
+**They need nothing from the index.** Where the server owns a station (a dedicated server
+near the world's centre, or the host's own area), it also holds the chest's real inventory,
+shared with any open session since 0.2.1. Every V+ path ends in `Container.Save`:
+`RemoveItemFromChest` ends in `ConveyContainerToNetwork`, and so does every direct-`AddItem`
+deposit site (beehive 2787/2852, sap collector 3654, fermenter 5910, smelter 8657). That save
+reaches `SaveToStore`, which notifies the open session. All of the patches above do nothing on
+the authority. *Cost if wrong: server-owned stations misbehave near an open chest; B9 checks it.*
+
+### Task 9 — additions
+
+On top of the checklist below:
+- auto-stack sweep into a bottomless chest from a client (no duplication, no loss);
+- a station owned by the dedicated server near the world's centre, pulling from a chest a client
+  has open;
+- crafting while the chest window is open (no double count);
+- a forwarded deposit into a read-only chest lands on the ground;
+- V+'s container panel resize alongside our scrollbar and drop marker.
+
 ## File Structure
 
 | File | Responsibility |

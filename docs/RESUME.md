@@ -43,21 +43,32 @@ has to be read with that in mind.
 
 ### B. ValheimPlus 10.1.2 support
 
-- [ ] **B4. Rebase `craft-from-chest-dedicated` onto `main`.** The branch only adds
-      `ChestIndex.cs`, `ChestIndexTests.cs`, a `.gitignore` line for `.superpowers/` and docs,
-      so code should rebase clean. Expect conflicts in `docs/RESUME.md` (keep this file; fold
-      in the branch's plan-state section) and `docs/valheim-1.0-compatibility.md`.
-- [ ] **B5. Update the spec and `docs/valheimplus.md` for 10.1.2.** Line numbers, station
-      ownership, the new features and the re-derived overlaps — all listed under
-      *ValheimPlus 10.1.2* below.
-- [ ] **B6. Rework plan Tasks 3–8 against the 1.0 code.** They were written before the take
-      message carried request ids and amounts, before deposits consolidated, and before the
-      read-only refusals. Re-extract the Task 3 and 4 briefs afterwards and re-apply
-      Ruling 1 — the extracted copies in the ledger directory are now stale.
-- [ ] **B7. Decide what server-run stations need.** Depends on A1 and A2. The server holds
-      real contents, so they may need nothing from the index — but they must not write around
-      an open session.
-- [ ] **B8. Execute Tasks 2–8.** Task 1 is done (`e760a37`, review clean).
+- [x] **B4. Bring `craft-from-chest-dedicated` across.** Cherry-picked, not rebased: only its
+      code commits (`07b1691` → `7a90722`, `e760a37` → `9a23be0`) plus the ledger snapshot
+      (`718ad3e`). Its doc commits are superseded by `main`'s own 1.0 records and this file. The
+      parked branch is left in place, untouched.
+- [x] **B5. Spec and `docs/valheimplus.md` updated for 10.1.2.** Each has a dated
+      re-derivation section at the top; the older body text is kept and marked.
+- [x] **B6. Plan Tasks 3–8 reworked.** See the plan's *Revision — 2026-09-14* section, which
+      overrides the task text. Its main points:
+      - Harmony: no `[HarmonyPatch]` on V+ targets, since `PatchAll` would degrade the whole
+        mod when V+ is absent. Soft dependency on V+.
+      - The index is ordered by session generation, then version.
+      - The server skips replying when the client is current.
+      - The read patch strips page items before appending, so nothing is counted twice.
+      - The write patches take any quality and never run the original on a client.
+      - `RemoveByName` keeps the open-stack index.
+      - Every instantiated chest is indexed, not just those within 50 m.
+      - Deposits get their own messages, with a ground fallback, and player items are not
+        forwarded.
+
+      The ledger's extracted briefs are stale; the plan plus the revision is the source.
+- [x] **B7. Server-run stations need nothing from the index.** Where the server owns the
+      station it holds the chest's real inventory. Every V+ path ends in `Container.Save` →
+      `SaveToStore` → the open session is notified. Recorded in the plan revision; checked in
+      B9.
+- [ ] **B8. Execute Tasks 3–8** under the revision. Tasks 1 and 2 are done (`9a23be0`,
+      `765fbf4`; suite at 164).
 - [ ] **B9. Verify on the dedicated server (Task 9), extended for 10.1.2:** crafting, repair,
       building, stations (smelter family, cooking, fermenter, beehive, sap collector, shield
       generator, fireplace), auto-stack sweep, and V+'s container-panel resize alongside our
