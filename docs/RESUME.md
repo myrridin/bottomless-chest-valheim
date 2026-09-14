@@ -99,7 +99,9 @@ has to be read with that in mind.
         which our patch replaces, so the value never changed. This breaks craft-from-chest and
         stations in single-player and on servers, 0.2.1 included. The fix sets the revision in
         our Load patch: always on a client, and only once contents are loaded on the authority.
-      - **Bug 2: consolidation changes item identity. Not fixed.** `StackConsolidation.StackKey`
+      - **Bug 2: consolidation changes item identity. Fixed on `release-0.3.0`** (`390697b`); not yet deployed. The key is now
+        `Logic.StackIdentity.Key(prefab, sharedName, quality, variant, worldLevel)`, which is
+        tested. The user chose to fold both bugs into 0.3.0 rather than ship a 0.2.2 hotfix. `StackConsolidation.StackKey`
         is `m_shared.m_name|quality|variant|worldLevel` and has no prefab, so different prefabs
         that share a shared name merge into whichever stack absorbs them. Item totals are
         conserved; identities are not. Seen when V+ `itemStackMultiplier = 900` on the server let
