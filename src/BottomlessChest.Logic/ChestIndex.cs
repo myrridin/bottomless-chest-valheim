@@ -36,18 +36,28 @@ namespace BottomlessChest.Logic
     {
         private readonly List<IndexEntry> _entries;
 
-        private ChestIndex(long version, List<IndexEntry> entries)
+        private ChestIndex(long generation, long version, List<IndexEntry> entries)
         {
+            Generation = generation;
             Version = version;
             _entries = entries;
         }
+
+        /// <summary>
+        /// Which server session this summary came from. Newer sessions have higher numbers.
+        /// </summary>
+        /// <remarks>
+        /// A session's <see cref="Version"/> starts again from zero whenever the chest is
+        /// reopened, so version alone cannot say which of two summaries is newer.
+        /// </remarks>
+        public long Generation { get; }
 
         /// <summary>The chest version this summary was taken at, for staleness checks.</summary>
         public long Version { get; }
 
         public IReadOnlyList<IndexEntry> Entries => _entries;
 
-        public static ChestIndex From(long version, IEnumerable<IStorableItem> items)
+        public static ChestIndex From(long generation, long version, IEnumerable<IStorableItem> items)
         {
             var entries = new List<IndexEntry>();
             var seen = new Dictionary<string, int>(System.StringComparer.Ordinal);
@@ -76,7 +86,7 @@ namespace BottomlessChest.Logic
                 }
             }
 
-            return new ChestIndex(version, entries);
+            return new ChestIndex(generation, version, entries);
         }
 
         /// <summary>How much of an item is held. A negative quality means any quality.</summary>
