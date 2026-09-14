@@ -37,6 +37,12 @@ namespace BottomlessChest.Compat
 
         private const BindingFlags Statics = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
 
+        /// <summary>
+        /// Whether any hook attached. Nothing else reads a chest's index, so without this a
+        /// client has no reason to ask for one - and asking keeps the chest loaded on the server.
+        /// </summary>
+        internal static bool Attached { get; private set; }
+
         internal static void Attach(Harmony harmony)
         {
             var assembly = AppDomain.CurrentDomain.GetAssemblies()
@@ -85,6 +91,7 @@ namespace BottomlessChest.Compat
                 attached++;
             }
 
+            Attached = attached > 0;
             Plugin.Log.LogInfo($"ValheimPlus chest integration: {attached} of 3 hook(s) attached.");
         }
 

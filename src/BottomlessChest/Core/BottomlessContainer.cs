@@ -300,7 +300,9 @@ namespace BottomlessChest.Core
         /// </remarks>
         private void RefreshIndex()
         {
-            if (SidecarStore.IsServerAuthority || !Net.ChestRpc.Ready)
+            // Only when ValheimPlus is here to ask. Each request keeps the chest's session alive
+            // on the server, so polling for nobody would hold every nearby chest in its memory.
+            if (SidecarStore.IsServerAuthority || !Net.ChestRpc.Ready || !Compat.ValheimPlusBridge.Attached)
             {
                 return;
             }

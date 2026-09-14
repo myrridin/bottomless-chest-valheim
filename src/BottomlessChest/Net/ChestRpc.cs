@@ -677,6 +677,17 @@ namespace BottomlessChest.Net
             reply.Write(session.StoreId);
             reply.Write(index.Generation);
             reply.Write(index.Version);
+
+            // A read-only chest refuses every removal. Advertising its contents would let a
+            // client answer another mod from them, be refused, receive the same totals back,
+            // and do it again - materials for nothing, indefinitely. Nothing to offer instead.
+            if (session.ReadOnly)
+            {
+                reply.Write(0);
+                _rpc.SendPackage(peer, reply);
+                return;
+            }
+
             reply.Write(index.Entries.Count);
             foreach (var entry in index.Entries)
             {
