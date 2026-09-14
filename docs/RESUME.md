@@ -5,10 +5,9 @@ session, with nothing else in hand.
 
 ## The one-line answer
 
-**0.2.0 is shipped and past 1,000 downloads. 0.3.0 is planned, not started.** It is
-ValheimPlus 10.1.2 support, four changes the user asked for, and two items carried forward
-from 0.2.0. Work happens on branch `release-0.3.0`. Nothing below is implemented yet —
-**start at A1.**
+**0.2.1 is shipped (the A1 data-loss hotfix) and merged into this branch. 0.3.0 is planned,
+A1 and A3 are done.** It is ValheimPlus 10.1.2 support, the changes the user asked for, and
+items carried forward. Work happens on branch `release-0.3.0` — **continue at A2, then B4.**
 
 A popular mod raises the cost of the standing rule: anyone on any earlier version must be
 able to upgrade without losing data. Every item that touches storage or config defaults
@@ -20,8 +19,9 @@ has to be read with that in mind.
 |---|---|---|
 | `v0.1.0` | `7a715cb` | First Thunderstore release |
 | `v0.2.0` | `ee7afe7` | Valheim 1.0 release, on Thunderstore |
-| `main` | `317ec90` | PR #1 merged; identical content to `v0.2.0` |
-| `release-0.3.0` | — | This plan; branched from `main` |
+| `v0.2.1` | `312f0c5` | A1 data-loss hotfix; zip handed to the user for Thunderstore |
+| `main` | `5599563` | PR #2 (`hotfix-0.2.1`) merged; content identical to `v0.2.1` |
+| `release-0.3.0` | `37ffe5a` | This plan; `main` merged in after 0.2.1 |
 | `craft-from-chest-dedicated` | `022a328` | V+ work parked at Task 1 of 9, still on **pre-1.0** `main` (`283c3b1`) |
 
 ---
@@ -30,16 +30,16 @@ has to be read with that in mind.
 
 ### A. Investigate first — these decide the shape of everything in B
 
-- [ ] **A1. Two uncoordinated copies of a chest on the server — reproduce or rule out.**
-      **Confirmed, fixed (`035ca9e` on `hotfix-0.2.1`) and verified; releasing as 0.2.1.**
-      Possible data loss; details in *The two-copies question* below. If it is real it
-      already affects 0.2.0 users, so it is fixed and released before anything else.
+- [x] **A1. Two uncoordinated copies of a chest on the server — reproduce or rule out.**
+      **Confirmed, fixed and shipped in 0.2.1** (`035ca9e`, then review follow-ups `b4d6b75`,
+      `3e8faf1`, `312f0c5`). Details in *The two-copies question* below. The server now holds
+      one inventory per chest; B7 builds on that.
 - [ ] **A2. Who runs a V+ station.** 10.1.2 gates stations on `m_nview.IsOwner()` and finds
       chests without a local player. Establish which peer owns a smelter on (a) a dedicated
       server with players nearby and (b) a player-hosted server. Log it rather than infer it.
-- [ ] **A3. Launch V+ 10.1.2 once** so it writes its config. The Development profile's
-      `valheim_plus.cfg` is still the 9.17.1 one (dated 2026-09-02), so the new chest-related
-      keys — auto-stack among them — have not been seen.
+- [x] **A3. Launch V+ 10.1.2 once** so it writes its config. Done: the config migrated to
+      `org.bepinex.plugins.valheim_plus.cfg` and loads from there. The Development profile runs
+      `[AutoStack] enabled = true`, range 50, and `[Inventory] playerInventoryRows = 8`.
 
 ### B. ValheimPlus 10.1.2 support
 
