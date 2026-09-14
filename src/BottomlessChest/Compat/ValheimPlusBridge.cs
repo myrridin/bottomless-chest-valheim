@@ -124,6 +124,35 @@ namespace BottomlessChest.Compat
 
             Attached = true;
             Plugin.Log.LogInfo($"ValheimPlus chest integration: all {hooks.Length} hooks attached.");
+
+            AttachSweepTargeting(harmony, assembly);
+        }
+
+        /// <summary>
+        /// Lets V+'s auto-stack sweep find bottomless chests by what they hold. Optional.
+        /// </summary>
+        /// <remarks>
+        /// Outside the all-or-nothing set: without it the sweep only misjudges which chests to
+        /// ask, which is what it did before, and nothing is counted or taken wrongly.
+        /// </remarks>
+        private static void AttachSweepTargeting(Harmony harmony, Assembly assembly)
+        {
+            var type = assembly.GetType("ValheimPlus.GameClasses.Inventory_StackAll_Patch", throwOnError: false);
+            var method = type?.GetMethod(
+                "ContainsItemByName", Statics, null, new[] { typeof(Inventory), typeof(string) }, null);
+
+            if (method == null)
+            {
+                Plugin.Log.LogInfo(
+                    "ValheimPlus auto-stack targeting hook not found; its sweep will judge bottomless chests from their pages.");
+                return;
+            }
+
+            ChestQueryPatches.ContainsItemByNameOriginal = method;
+            if (!TryPatch(harmony, new Hook(method, nameof(ChestQueryPatches.ContainsItemByNamePrefix), null, "auto-stack targeting")))
+            {
+                ChestQueryPatches.ContainsItemByNameOriginal = null;
+            }
         }
 
         private sealed class Hook

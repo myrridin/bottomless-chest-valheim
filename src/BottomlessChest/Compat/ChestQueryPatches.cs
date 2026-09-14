@@ -197,6 +197,62 @@ namespace BottomlessChest.Compat
             return true;
         }
 
+        /// <summary>V+'s own <c>Inventory_StackAll_Patch.ContainsItemByName</c>, set by the bridge.</summary>
+        internal static System.Reflection.MethodInfo ContainsItemByNameOriginal;
+
+        /// <summary>
+        /// Prefix on V+'s <c>ContainsItemByName(Inventory, string)</c>: which chests its sweep asks.
+        /// </summary>
+        /// <remarks>
+        /// V+ decides from the chest's inventory, which on a client is a page left over from the
+        /// last time the chest was open, or nothing. Answered by running V+'s own method - its
+        /// ignore-food, ammo, mead and equipment filters included - over stand-ins for the
+        /// matching entries, in a scratch inventory this prefix does not intercept.
+        /// </remarks>
+        internal static bool ContainsItemByNamePrefix(Inventory inventory, string name, ref bool __result)
+        {
+            try
+            {
+                if (ContainsItemByNameOriginal == null || !ChestContents.Resolve(inventory, out _, out var index))
+                {
+                    return true;
+                }
+
+                __result = false;
+                if (index == null)
+                {
+                    return false;
+                }
+
+                var scratch = new Inventory("sweep", null, 8, 64);
+                foreach (var entry in index.Entries)
+                {
+                    if (entry.Count > 0 && ChestContents.IsNamed(entry.ItemId, name))
+                    {
+                        var standIn = ChestContents.StandIn(entry);
+                        if (standIn != null)
+                        {
+                            scratch.m_inventory.Add(standIn);
+                        }
+                    }
+                }
+
+                __result = scratch.m_inventory.Count > 0
+                    && (bool)ContainsItemByNameOriginal.Invoke(null, new object[] { scratch, name });
+                return false;
+            }
+            catch (Exception ex)
+            {
+                if (!_warnedRead)
+                {
+                    _warnedRead = true;
+                    Plugin.Log.LogWarning($"Could not answer ValheimPlus's sweep for a bottomless chest: {ex}");
+                }
+
+                return true;
+            }
+        }
+
         /// <summary>Drops the stand-ins kept for a chest, when the chest goes.</summary>
         internal static void Forget(string storeId)
         {
