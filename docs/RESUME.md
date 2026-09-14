@@ -67,8 +67,20 @@ has to be read with that in mind.
       station it holds the chest's real inventory. Every V+ path ends in `Container.Save` →
       `SaveToStore` → the open session is notified. Recorded in the plan revision; checked in
       B9.
-- [ ] **B8. Execute Tasks 3–8** under the revision. Tasks 1 and 2 are done (`9a23be0`,
-      `765fbf4`; suite at 164).
+- [x] **B8. Tasks 1–8 implemented** under the revision. Suite at 174.
+
+      | Task | Commit |
+      |---|---|
+      | 1 | `9a23be0` |
+      | 2 | `765fbf4` |
+      | 3 | `9a6283d` |
+      | 4 | `131394b` |
+      | 5–6 | `a9700e2` |
+      | 7 | `0d42b53` |
+      | 8 | `f7b0a61` |
+
+      Tasks 3–8 have no unit tests beyond the cache, by design; B9 is what proves them.
+      `scripts/server-setup.sh` now mirrors ValheimPlus and its config to the dedicated server.
 - [ ] **B9. Verify on the dedicated server (Task 9), extended for 10.1.2:** crafting, repair,
       building, stations (smelter family, cooking, fermenter, beehive, sap collector, shield
       generator, fireplace), auto-stack sweep, and V+'s container-panel resize alongside our

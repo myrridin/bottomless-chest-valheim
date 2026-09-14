@@ -29,6 +29,22 @@ rm -rf "$SERVER/BepInEx/plugins/ValheimModding-Jotunn"
 cp -rp "$JOTUNN" "$SERVER/BepInEx/plugins/"
 echo "  Jotunn $(grep -oP '"version_number":\s*"\K[^"]+' "$JOTUNN/manifest.json" 2>/dev/null || echo '?')"
 
+# ValheimPlus, when the client profile has it. Stations run on whichever peer owns them,
+# so on a dedicated server the ones near the world's centre run V+ on the server itself -
+# testing that needs V+ there too, with the same config the client has.
+VPLUS="$PROFILE/BepInEx/plugins/Grantapher-ValheimPlus_Grantapher_Temporary"
+if [ -d "$VPLUS" ]; then
+    rm -rf "$SERVER/BepInEx/plugins/Grantapher-ValheimPlus_Grantapher_Temporary"
+    cp -rp "$VPLUS" "$SERVER/BepInEx/plugins/"
+    for cfg in org.bepinex.plugins.valheim_plus.cfg; do
+        [ -f "$PROFILE/BepInEx/config/$cfg" ] && cp -p "$PROFILE/BepInEx/config/$cfg" "$SERVER/BepInEx/config/"
+    done
+    echo "  ValheimPlus $(grep -oP '"version_number":\s*"\K[^"]+' "$VPLUS/manifest.json" 2>/dev/null || echo '?')"
+else
+    rm -rf "$SERVER/BepInEx/plugins/Grantapher-ValheimPlus_Grantapher_Temporary"
+    echo "  ValheimPlus not in the profile; removed from the server too"
+fi
+
 echo
 echo "Server loader ready. Build the mod to deploy it:"
 echo '  "/mnt/c/Program Files/dotnet/dotnet.exe" build src/BottomlessChest/BottomlessChest.csproj'
