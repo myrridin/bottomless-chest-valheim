@@ -62,6 +62,49 @@ namespace BottomlessChest.Core
         /// <summary>Bumped on every change, so clients can detect they acted on stale data.</summary>
         internal long Version { get; private set; }
 
+        /// <summary>
+        /// Which session this is, so a summary can be ordered against one from an earlier
+        /// session of the same chest.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Version"/> starts from zero in every session, and a chest gets a new
+        /// session each time it is reopened or released idle. Seeded from the clock so it keeps
+        /// rising across a server restart.
+        /// </remarks>
+        internal long Generation { get; } = System.Threading.Interlocked.Increment(ref _lastGeneration);
+
+        private static long _lastGeneration = System.DateTime.UtcNow.Ticks;
+
+        private ChestIndex _index;
+
+        /// <summary>
+        /// Totals per item type, for another mod to query from a client.
+        /// </summary>
+        /// <remarks>
+        /// Rebuilt only when the contents have changed since the last build. Clients ask about
+        /// every chest they can see once a second, and a rebuild walks the whole chest.
+        /// </remarks>
+        internal ChestIndex Index
+        {
+            get
+            {
+                if (_index == null || _index.Version != Version)
+                {
+                    _index = ChestIndex.From(Generation, Version, Adapt(Inventory.m_inventory));
+                }
+
+                return _index;
+            }
+        }
+
+        private static IEnumerable<IStorableItem> Adapt(List<ItemDrop.ItemData> items)
+        {
+            foreach (var item in items)
+            {
+                yield return new ItemAdapter(item);
+            }
+        }
+
         /// <summary>Row the client was last shown, so a refresh can hold its place.</summary>
         internal int LastScrollRow { get; private set; }
 

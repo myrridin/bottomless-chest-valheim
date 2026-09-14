@@ -45,5 +45,11 @@ namespace BottomlessChest.Net
 
         /// <summary>Server reports fresh totals without re-sending the page.</summary>
         Counts = 12,
+
+        /// <summary>Client asks for a summary of a chest, quoting the one it already holds.</summary>
+        IndexRequest = 13,
+
+        /// <summary>Server returns totals per item type, so another mod can query the chest.</summary>
+        IndexResult = 14,
     }
 }

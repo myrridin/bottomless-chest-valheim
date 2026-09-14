@@ -29,6 +29,33 @@ namespace BottomlessChest.Net
 
         internal static bool Ready => _rpc != null;
 
+        /// <summary>
+        /// The latest summary of each chest this client can see. Empty on the server authority,
+        /// which holds the chests themselves.
+        /// </summary>
+        internal static readonly Logic.ChestIndexCache Indexes = new Logic.ChestIndexCache();
+
+        /// <summary>
+        /// Asks the server for a summary of a chest, quoting the one already held so an
+        /// unchanged chest costs no reply.
+        /// </summary>
+        internal static void RequestIndex(string storeId)
+        {
+            if (string.IsNullOrEmpty(storeId) || !Ready)
+            {
+                return;
+            }
+
+            var held = Indexes.TryGet(storeId, out var index) ? index : null;
+
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.IndexRequest);
+            package.Write(storeId);
+            package.Write(held?.Generation ?? 0L);
+            package.Write(held?.Version ?? -1L);
+            ToServer(package);
+        }
+
         internal static void Register()
         {
             _rpc = NetworkManager.Instance.AddRPC(RpcName, OnServerReceive, OnClientReceive);
@@ -460,6 +487,28 @@ namespace BottomlessChest.Net
                 case ChestMessage.Close:
                     ChestSessions.Release(storeId);
                     break;
+
+                case ChestMessage.IndexRequest:
+                {
+                    var heldGeneration = package.ReadLong();
+                    var heldVersion = package.ReadLong();
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
+                    {
+                        break;
+                    }
+
+                    // Every client asks about every chest it can see, once a second. Answering
+                    // an unchanged chest would rebuild and resend it for nothing.
+                    if (session.Generation == heldGeneration && session.Version == heldVersion)
+                    {
+                        break;
+                    }
+
+                    SendIndex(sender, session);
+                    break;
+                }
             }
 
             yield break;
@@ -477,6 +526,27 @@ namespace BottomlessChest.Net
             counts.Write(session.TotalWeight);
 
             _rpc.SendPackage(peer, counts);
+        }
+
+        /// <summary>Sends a chest's totals per item type, for another mod to query.</summary>
+        private static void SendIndex(long peer, ChestSession session)
+        {
+            var index = session.Index;
+
+            var reply = new ZPackage();
+            reply.Write((int)ChestMessage.IndexResult);
+            reply.Write(session.StoreId);
+            reply.Write(index.Generation);
+            reply.Write(index.Version);
+            reply.Write(index.Entries.Count);
+            foreach (var entry in index.Entries)
+            {
+                reply.Write(entry.ItemId);
+                reply.Write(entry.Quality);
+                reply.Write(entry.Count);
+            }
+
+            _rpc.SendPackage(peer, reply);
         }
 
         /// <summary>Sends one window of items. A negative row means "keep the current one".</summary>
@@ -663,6 +733,24 @@ namespace BottomlessChest.Net
                 case ChestMessage.Accepted:
                     Filter.ChestView.ApplyAccepted();
                     break;
+
+                case ChestMessage.IndexResult:
+                {
+                    var generation = package.ReadLong();
+                    var version = package.ReadLong();
+                    var count = package.ReadInt();
+                    var items = new List<Logic.IStorableItem>(count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        var itemId = package.ReadString();
+                        var quality = package.ReadInt();
+                        var held = package.ReadInt();
+                        items.Add(new Logic.IndexedItem(itemId, quality, held));
+                    }
+
+                    Indexes.Put(storeId, Logic.ChestIndex.From(generation, version, items));
+                    break;
+                }
 
                 case ChestMessage.Stacked:
                 {
