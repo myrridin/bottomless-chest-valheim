@@ -18,8 +18,8 @@ namespace BottomlessChest.Commands
 
         public override string Help =>
             "bottomless list | here | probe | trace on [prefab] | trace off | rebind <storeId> [zdo-only] | fill <stacks> [prefab] | empty | " +
-            "session-put [prefab] | session-hold | session-release  (fill, empty and the session commands are off by default; see the Testing " +
-            "section of the config)";
+            "session-put [prefab] | session-hold | session-release | faststack on|off  (fill, empty, faststack and the session commands are " +
+            "off by default; see the Testing section of the config)";
 
         public override void Run(string[] args)
         {
@@ -91,10 +91,38 @@ namespace BottomlessChest.Commands
 
                     break;
 
+                case "faststack":
+                    if (RequireCheats())
+                    {
+                        FastStack(args);
+                    }
+
+                    break;
+
                 default:
                     Console.instance.Print(Help);
                     break;
             }
+        }
+
+        /// <summary>
+        /// Switches Place Stacks between the fast path and vanilla, and reports each one's time.
+        /// </summary>
+        /// <remarks>
+        /// For measuring on the machine that holds the chest - single-player or a host. The
+        /// timing is reported for the rest of the session once this has been used.
+        /// </remarks>
+        private static void FastStack(IReadOnlyList<string> args)
+        {
+            if (args.Count > 1)
+            {
+                PlaceStacksPatches.Enabled = args[1].ToLowerInvariant() != "off";
+            }
+
+            PlaceStacksPatches.Measuring = true;
+            Console.instance.Print(
+                $"Place Stacks into bottomless chests uses the {(PlaceStacksPatches.Enabled ? "fast" : "vanilla")} " +
+                "path; each one's time is reported here and in the log.");
         }
 
         private static void List()

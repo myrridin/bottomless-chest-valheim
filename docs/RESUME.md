@@ -255,13 +255,24 @@ has to be read with that in mind.
 
 ### C. Requested by the user
 
-- [ ] **C11. Default build cost → the wooden chest's.** Believed to be `Wood:10`; confirm
+- [x] **C11. Default build cost → the wooden chest's.** Done in `39457f6`: `Wood:10`, read
+      with UnityPy from `piece_chest_wood`'s `Piece.m_resources` (bundle `b6c81f5f`, resource
+      resolved to prefab `Wood` in `c4210710`). An unedited old default is upgraded at startup
+      via `Logic.ConfigDefaults.Upgrade`; the user chose this (2026-09-14). Believed to be `Wood:10`; confirm
       against `piece_chest_wood`'s `Piece.m_resources` rather than memory. Config defaults only
       reach new installs — BepInEx keeps whatever value is already in a player's file, and
       most players never edit it. Proposed: replace the stored value only when it still equals
       the old default exactly (`FineWood:20,BlackMetal:10,SurtlingCore:5`), leave anything
       edited. (The dev profile's `Wood:1` is a local testing value; leave it.)
-- [ ] **C12. Make the chest look good instead of drab.** Current defaults: body `#C4C2BC`,
+- [ ] **C12. Make the chest look good instead of drab.** User chose: I propose palettes, they
+      try each in game (2026-09-14). Only unedited configs pick up new defaults (same
+      `ConfigDefaults.Upgrade` as C11). Trial palettes (Body / Lid / Glow / Strength):
+      - **A, void amethyst:** `#9B7FC9` / `#2B2140` / `#B98CFF` / `0.9` — **set in the dev
+        client config** (original saved in the session scratchpad as
+        `client-cfg-before-palette.cfg`; its values were the defaults).
+      - **B, ember gold:** `#D8B27A` / `#3A2818` / `#FFB04A` / `0.8`.
+      - **C, rune moss:** `#A8B88A` / `#22301E` / `#9CFF6A` / `0.9`.
+      No blue-cyan: that is the placement ghost's colour. Current defaults: body `#C4C2BC`,
       lid `#2E2E33`, glow `#8FA86B` at `0.35`. Needs in-game screenshots to judge. Same
       stored-default problem as C11, same proposed answer.
 - [x] **C13. Remove `SnapshotDebounceSeconds`.** Done: binding and README row removed.
@@ -288,7 +299,16 @@ has to be read with that in mind.
       "sometimes"; the key never focuses our clone. User: don't display it, clicking is fine.
       Fix in `SearchField.TryCloneVanilla`: deactivate every `UIGamePad.m_hint` in the clone
       and destroy the `UIGamePad` components. Found in the 0.2.1 default-log run.
-- [ ] **C19. Place Stacks is very slow on a big chest** (user: "super slow", 9,971 stacks,
+- [ ] **C19. Place Stacks is very slow on a big chest** — user chose to fix in 0.3.0.
+      **Implemented, not yet measured in game:** `Core/PlaceStacksPatches.cs`, on the authority
+      for unbounded inventories only: `FindEmptySlot` via `GridPacker.FirstEmptySlot` (tested
+      against a vanilla scan on random layouts); `AddItem(item)` merging a stack at a time; and
+      one save per `StackAll`, deferred in `ContainerPersistencePatches.SavePatch` and flushed
+      by a finalizer. Differs from the proposal below: patching the add primitives rather than
+      replacing `StackAll` keeps V+'s `StackAll` transpiler (its ignore-food/ammo filter) in
+      force. Measure with `bottomless faststack off|on` (testing-gated), which reports each
+      Place Stacks' time. Needs `/code-review`.
+      Original notes: (user: "super slow", 9,971 stacks,
       single-player). Present since 0.1.0 — not a 0.2.1 regression. Two costs per item moved,
       both O(chest):
       - `InventoryCapacity.TopFirstPatch` forces `TopFirst = true`, so vanilla
@@ -310,7 +330,7 @@ has to be read with that in mind.
 
 ### D. Carried forward from 0.2.0
 
-- [ ] **D15. The unwired stack-limit code.** `StackRules.SplitForExit`, `EffectiveStackLimit`,
+- [x] **D15. The unwired stack-limit code.** Deleted in `72ecad0`, by user choice. `StackRules.SplitForExit`, `EffectiveStackLimit`,
       `StackPolicy` and `CanMerge` are reached only by tests. That is the user's earlier
       decision — unbounded stacks were deprioritised and the config keys removed in
       `828c002` — not an accident. But stacks above the limit can still occur: lowering V+'s

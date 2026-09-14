@@ -25,7 +25,12 @@ namespace BottomlessChest.Core
                 }
 
                 bottomless.EnsureRegistered();
-                bottomless.SaveToStore();
+
+                // Place Stacks saves once when it finishes, not once per stack it moves.
+                if (!PlaceStacksPatches.DeferSave(__instance))
+                {
+                    bottomless.SaveToStore();
+                }
 
                 // Skip the original: items must never reach the ZDO.
                 return false;
