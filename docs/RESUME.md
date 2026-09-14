@@ -113,7 +113,8 @@ has to be read with that in mind.
 
 - [ ] **E17.** Release gate: the four never-change identifiers against `v0.2.0`, the store
       read-path diff, `Still_looks_everywhere_0_1_0_looked` green. Then changelog, version bump
-      in `Plugin.cs` **and** `manifest.json`, one default-log-level client run, package,
+      in `Plugin.cs`, `manifest.json` **and** `<Version>` in the build props — a DLL still
+      carrying the old version string means one was missed, one default-log-level client run, package,
       verify the zip contains the new code, tag, push the tag. Upload only when asked.
 
 ---
