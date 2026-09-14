@@ -134,8 +134,13 @@ namespace BottomlessChest.Net
         /// rather than sending two runs keeps a mismatched count from silently pairing the
         /// wrong amount with the wrong item.
         /// </remarks>
+        /// <param name="dropOnArrival">
+        /// Drop what is granted on the ground rather than into the inventory - an item dragged
+        /// out of the window onto the world, as vanilla would.
+        /// </param>
         internal static void Take(
-            string storeId, long version, IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null)
+            string storeId, long version, IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null,
+            bool dropOnArrival = false)
         {
             var package = new ZPackage();
             package.Write((int)ChestMessage.Take);
@@ -148,6 +153,7 @@ namespace BottomlessChest.Net
                 package.Write(amounts == null || i >= amounts.Count ? 0 : amounts[i]);
             }
 
+            package.Write(dropOnArrival);
             ToServer(package);
         }
 
@@ -253,6 +259,10 @@ namespace BottomlessChest.Net
                         amounts.Add(package.ReadInt());
                     }
 
+                    // Echoed back with the items, so the client knows where they go without
+                    // having to match replies to requests.
+                    var dropOnArrival = package.ReadBool();
+
                     if (!ChestSessions.TryGet(storeId, out var session))
                     {
                         break;
@@ -308,6 +318,7 @@ namespace BottomlessChest.Net
                     granted.Write((int)ChestMessage.Granted);
                     granted.Write(storeId);
                     granted.Write(takenBytes);
+                    granted.Write(dropOnArrival);
                     _rpc.SendPackage(sender, granted);
 
                     // Counts only, not a page: re-sending one would compact the remaining
@@ -856,7 +867,10 @@ namespace BottomlessChest.Net
                     // The one receive path where a quiet failure is permanent: the server has
                     // already removed these and persisted without them, so whatever does not
                     // read here is gone. Whatever does read is still applied.
-                    if (!TryDeserialize(package.ReadByteArray(), out var items))
+                    var readable = TryDeserialize(package.ReadByteArray(), out var items);
+                    var dropOnArrival = package.ReadBool();
+
+                    if (!readable)
                     {
                         Plugin.Log.LogError(
                             $"Could not fully read the items granted from chest {storeId}; " +
@@ -865,7 +879,7 @@ namespace BottomlessChest.Net
                             "a content mod the server has.");
                     }
 
-                    Filter.ChestView.ApplyGranted(items);
+                    Filter.ChestView.ApplyGranted(items, dropOnArrival);
                     break;
                 }
 

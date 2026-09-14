@@ -90,10 +90,10 @@ namespace BottomlessChest.Core
         /// removes the page's copy and spawns that on the ground, and the server - which still
         /// holds the item - is never told. The item was on the floor and still in the chest.
         ///
-        /// Turned into the same take a drag into the inventory makes, so the server hands the
-        /// item over. It arrives in the player's inventory rather than on the ground; a player
-        /// who wanted it on the floor can drop it from there, and nothing is duplicated. Vanilla
-        /// never runs for a page, even when the item cannot be found on it.
+        /// Turned into a take marked to drop on arrival: the server removes the item and hands it
+        /// back with the mark, and only then does it land on the ground where vanilla would have
+        /// put it. A refused take hands nothing back, so nothing is dropped. Vanilla never runs
+        /// for a page, even when the item cannot be found on it.
         /// </remarks>
         [HarmonyPatch(typeof(Humanoid), nameof(Humanoid.DropItem),
             new[] { typeof(Inventory), typeof(ItemDrop.ItemData), typeof(int) })]
@@ -106,8 +106,20 @@ namespace BottomlessChest.Core
                     return true;
                 }
 
-                __result = amount > 0
-                    && Intercept(null, inventory, item, amount >= item.m_stack ? 0 : amount) == Outcome.Sent;
+                var slot = ChestView.PageSlotOf(item);
+                if (amount <= 0 || slot < 0)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                OneSlot.Clear();
+                OneSlot.Add(slot);
+                OneAmount.Clear();
+                OneAmount.Add(amount >= item.m_stack ? 0 : amount);
+                ChestView.RequestTake(OneSlot, OneAmount, dropOnArrival: true);
+
+                __result = true;
                 return false;
             }
         }

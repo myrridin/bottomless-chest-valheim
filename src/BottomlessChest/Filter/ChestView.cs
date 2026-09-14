@@ -619,7 +619,7 @@ namespace BottomlessChest.Filter
         }
 
         /// <summary>Receives items the server has removed from the chest for us.</summary>
-        internal static void ApplyGranted(List<ItemDrop.ItemData> items)
+        internal static void ApplyGranted(List<ItemDrop.ItemData> items, bool dropOnArrival = false)
         {
             var player = Player.m_localPlayer?.GetInventory();
             if (player == null)
@@ -629,6 +629,15 @@ namespace BottomlessChest.Filter
 
             foreach (var item in items)
             {
+                if (dropOnArrival && item?.m_dropPrefab != null)
+                {
+                    // Where vanilla's Humanoid.DropItem puts a dragged-out item: just ahead of
+                    // the player, at chest height.
+                    var body = Player.m_localPlayer.transform;
+                    ItemDrop.DropItem(item, item.m_stack, body.position + body.forward + body.up, body.rotation);
+                    continue;
+                }
+
                 if (!player.AddItem(item))
                 {
                     // Nowhere to put it: drop at the player's feet rather than lose it,
@@ -845,7 +854,8 @@ namespace BottomlessChest.Filter
         /// the whole stack. Take All and an ordinary click leave it null and take everything;
         /// only a split drag fills it in.
         /// </remarks>
-        internal static void RequestTake(IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null)
+        internal static void RequestTake(
+            IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null, bool dropOnArrival = false)
         {
             if (!_remote || pageSlots.Count == 0)
             {
@@ -864,7 +874,7 @@ namespace BottomlessChest.Filter
                 $"Requesting {absolute.Count} item(s) from chest {_remoteStoreId} at v{_version}, " +
                 $"row {_scrollRow} (first index {(absolute.Count > 0 ? absolute[0] : -1)}).");
 
-            Net.ChestRpc.Take(_remoteStoreId, _version, absolute, amounts);
+            Net.ChestRpc.Take(_remoteStoreId, _version, absolute, amounts, dropOnArrival);
         }
 
         /// <summary>
