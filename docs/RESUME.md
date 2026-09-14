@@ -205,6 +205,31 @@ has to be read with that in mind.
           says a plain drop is fine, since vanilla looks similar.
         - **Temporary diagnostics to remove before release:** `ScrollTo` caller logging,
           `ChestScrollbarBridge.WatchContent`, and the `[pad]` dump in `SearchBox.Build`.
+      - **B9 runs 6–7 (2026-09-14): scrolling solid; controller support scoped.**
+        - **The jump's real cause.** The page was registered unbounded on the client, and
+          V+'s `ConveyContainerToNetwork` calls `Inventory.Changed` after every station
+          deposit. `InventoryCapacity.ChangedPatch` then resized the page to its items plus the
+          reserve, 8 rows, and vanilla laid out empty rows and parked on the bottom. Fixed in
+          `2a2bbc8`: only the authority resizes, and the page stays registered for
+          `ClientDepositGuard`. The ScrollRect lock (`51c9f95`) is kept as well.
+        - **User verdict, run 6: "looking pretty solid, scrolling looks right."**
+        - **Gamepad:**
+          - `[pad]` dump: Take All = `JoyLStick`, Place Stacks = `JoyRStick`, and the cloned
+            search field also answered `JoyLStick`.
+          - Search now uses `JoyBack` (View), by user choice, and the clone's `UIGamePad` is
+            stripped (`f6ef9a5`).
+          - Right stick scrolls (`46f4571`).
+          - Left stick and D-pad page at the edge (`97c5ac1`), with hold-repeat (`addeaec`).
+          - B closes the window (`2970b2d`): search no longer takes focus on open with a
+            gamepad, and Jotunn's `BlockInput` (which silences ZInput, where vanilla reads B)
+            only applies while the keyboard is active.
+        - **User scope decision:** after these, controller support is done for now. Typing is
+          central to this mod, so no on-screen keyboard work; the construction view has none on
+          PC either.
+        - **Empty last row fixed** (`b8f8262`): `GridPacker.LastPageRow`, tested and shared by
+          the client and server clamps. Suite at 187.
+        - **Not yet verified in game:** `2a2bbc8` onward except the page-height fix, which was
+          verified in run 6. That leaves `b8f8262`, `addeaec` and `2970b2d`.
       - **Still to run** after deploying `390697b`: steps 2–7 of the B9 list (build menu,
         crafting open and closed, kiln pull and coal deposit, Place Stacks, a server-owned kiln
         near spawn, then save).
