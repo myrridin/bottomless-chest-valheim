@@ -161,7 +161,22 @@ namespace BottomlessChest.Core
             ContentsVersion++;
             _orderDirty = true;
             _weightDirty = true;
+
+            // Only once something outside the session has changed this chest, and so may again.
+            // A session nobody else touches never pays for the walk.
+            if (_trackingMembership)
+            {
+                _membership = ReferenceFingerprint.Of(Inventory.m_inventory);
+            }
         }
+
+        /// <summary>
+        /// Which stacks the chest held, and in what order, after the last change this session
+        /// knows about. See <see cref="OnExternalChange"/>.
+        /// </summary>
+        private ulong _membership;
+
+        private bool _trackingMembership;
 
         /// <summary>
         /// Weight of everything the chest holds.
@@ -527,9 +542,29 @@ namespace BottomlessChest.Core
         /// And the order may have shifted under a page a client is holding, so the version is
         /// bumped: that client's next take is refused as stale and re-paged, rather than
         /// taking whatever now sits at the index it quoted.
+        ///
+        /// Unless only counts changed. A ValheimPlus station running on the machine that holds
+        /// the chest - a player-hosted server near the host, a dedicated server near the world's
+        /// centre - takes from the real inventory and saves, once a second. Treating each of
+        /// those as a reshuffle refused every take a remote player made while it ran, and walked
+        /// the chest to rebuild the index each tick. So the stacks held, and their order, are
+        /// fingerprinted after every change the session knows about: if they are the same now,
+        /// every index still names the same stack, and this is a count change like
+        /// <see cref="RemoveByName"/>'s. The open-stack index stays usable too: a stack it names
+        /// is still in the chest, and one that filled up is simply not merged into.
+        ///
+        /// The first outside change is always handled in full, since there is no fingerprint to
+        /// compare against yet; and any doubt falls back to the full path, which is only slower.
         /// </remarks>
         internal void OnExternalChange()
         {
+            var membership = ReferenceFingerprint.Of(Inventory.m_inventory);
+            if (_trackingMembership && membership == _membership)
+            {
+                TouchCounts();
+                return;
+            }
+
             _openStacks.Clear();
 
             foreach (var item in Inventory.m_inventory)
@@ -549,6 +584,9 @@ namespace BottomlessChest.Core
 
             _consolidated = true;
             Touch();
+
+            _trackingMembership = true;
+            _membership = membership;
         }
 
         private static bool SameItemsInOrder(Inventory a, Inventory b)
