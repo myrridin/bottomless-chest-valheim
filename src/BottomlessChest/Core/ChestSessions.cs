@@ -71,6 +71,7 @@ namespace BottomlessChest.Core
 
             var session = new ChestSession(storeId, inventory) { ReadOnly = partial };
             Open[storeId] = session;
+            StoreTrace.Session("opened", session);
 
             // Before any page is built, so the numbering a client is handed is the numbering
             // it will still be holding. A read-only session is left alone: its contents are
@@ -100,6 +101,7 @@ namespace BottomlessChest.Core
 
             Persist(session);
             Open.Remove(storeId);
+            StoreTrace.Session("released", session);
         }
 
         /// <summary>Serializes a session's live contents into the store.</summary>
@@ -127,6 +129,7 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            StoreTrace.Session("persist wrote", session);
             SidecarStore.Instance.Put(session.StoreId, payload);
         }
 
