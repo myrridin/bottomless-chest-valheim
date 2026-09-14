@@ -118,6 +118,25 @@ has to be read with that in mind.
         Stacks already merged stay merged. Vanilla's `AddItem` still stacks by name, which is
         out of scope.
       - **Release decision (user, 2026-09-14):** both bugs ship in 0.3.0; no 0.2.2 hotfix.
+      - **B9 run 2 (2026-09-14), with `55bbb48` and `390697b` deployed:**
+        - **Passed:** building from the chest, the workbench count, and crafting removing the
+          right amount.
+        - **Bug 3: kiln took wood and got none. Fixed in `7f8e8c3`.** `TryTake` walks
+          `index.Entries` and calls `Take` inside the loop; `Take` replaced list elements, and
+          the walk threw *after* `TakeByName` was sent. The prefix answered V+ with 0, so the
+          server removed the wood, the kiln never received it and never made coal. Entries are
+          now an array, which is tested. The test chest has lost that wood; check it in the
+          store.
+        - **Bug 4: dragging an item out of a remote chest duplicated it. Fixed in `d03654b`.** Vanilla drops via `Humanoid.DropItem` with the page as the
+          inventory, and the server is never told. A prefix now turns it into a take, so the
+          item lands in the inventory. Shipped in 0.2.x.
+        - **Bug 5: takes refused as stale while a kiln ran. Fixed in `81e74cf`.** Every `TakeByName` bumped
+          `Version`. The session now has `Version`, which moves only when order may shift, and
+          `ContentsVersion`, which moves on every change and keys the index. A partial removal
+          and a merged deposit bump only the latter. A viewer's page can show slightly stale
+          counts while a station runs; a take is still measured against the real stack.
+        - **Still to verify:** the kiln deposits coal into the chest, Place Stacks, the
+          near-spawn server-owned kiln, and the store totals afterwards.
       - **Still to run** after deploying `390697b`: steps 2–7 of the B9 list (build menu,
         crafting open and closed, kiln pull and coal deposit, Place Stacks, a server-owned kiln
         near spawn, then save).
