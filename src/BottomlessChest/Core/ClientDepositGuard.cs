@@ -53,7 +53,9 @@ namespace BottomlessChest.Core
         /// </remarks>
         private static bool TryForward(Inventory inventory, ItemDrop.ItemData item)
         {
-            if (item == null || !Net.ChestRpc.Ready)
+            // Only with the ValheimPlus integration active. Without it this client refuses, as
+            // 0.2.1 did - see ValheimPlusBridge.Attached for everything that switch covers.
+            if (item == null || !Net.ChestRpc.Ready || !Compat.ValheimPlusBridge.Attached)
             {
                 return false;
             }

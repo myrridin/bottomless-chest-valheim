@@ -52,7 +52,8 @@ namespace BottomlessChest.Compat
         /// </remarks>
         internal static void ListItemsPostfix(List<Container> nearbyChests, List<ItemDrop.ItemData> __result)
         {
-            if (Plugin.Degraded || SidecarStore.IsServerAuthority || nearbyChests == null || __result == null)
+            if (Plugin.Degraded || !ValheimPlusBridge.Attached || SidecarStore.IsServerAuthority
+                || nearbyChests == null || __result == null)
             {
                 return;
             }
@@ -148,7 +149,8 @@ namespace BottomlessChest.Compat
 
                 // The original against a client's page could remove items that exist only
                 // here and report them consumed. Claiming nothing was taken is the safe answer.
-                if (chest != null && !SidecarStore.IsServerAuthority && BottomlessContainer.TryResolve(chest, out _))
+                if (ValheimPlusBridge.Attached && chest != null && !SidecarStore.IsServerAuthority
+                    && BottomlessContainer.TryResolve(chest, out _))
                 {
                     __result = 0;
                     return false;
@@ -176,7 +178,7 @@ namespace BottomlessChest.Compat
         {
             taken = 0;
 
-            if (Plugin.Degraded || SidecarStore.IsServerAuthority || chest == null
+            if (Plugin.Degraded || !ValheimPlusBridge.Attached || SidecarStore.IsServerAuthority || chest == null
                 || !BottomlessContainer.TryResolve(chest, out var bottomless))
             {
                 return false;

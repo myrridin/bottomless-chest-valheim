@@ -38,9 +38,23 @@ namespace BottomlessChest.Compat
         private const BindingFlags Statics = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
 
         /// <summary>
-        /// Whether any hook attached. Nothing else reads a chest's index, so without this a
-        /// client has no reason to ask for one - and asking keeps the chest loaded on the server.
+        /// The one switch for everything this mod does on ValheimPlus's behalf.
         /// </summary>
+        /// <remarks>
+        /// True only when ValheimPlus is present and all three hooks attached. Everything that
+        /// exists for ValheimPlus's sake checks this and does nothing otherwise, so without
+        /// ValheimPlus a client behaves exactly as 0.2.1 did:
+        /// <list type="bullet">
+        /// <item>the hooks themselves, which are only ever attached here;</item>
+        /// <item>asking the server for chest summaries (<c>BottomlessContainer.RefreshIndex</c>),
+        /// which would otherwise keep every nearby chest loaded on the server;</item>
+        /// <item>forwarding items another mod adds to a chest (<c>ClientDepositGuard</c>), which
+        /// otherwise falls back to refusing them.</item>
+        /// </list>
+        /// Per machine. A server answers summary, removal and deposit messages whether or not
+        /// it runs ValheimPlus itself, because the clients asking might; with no client asking,
+        /// those handlers never run.
+        /// </remarks>
         internal static bool Attached { get; private set; }
 
         internal static void Attach(Harmony harmony)
@@ -75,47 +89,103 @@ namespace BottomlessChest.Compat
             var removeByName = assistant.GetMethod(
                 "RemoveItemFromChest", Statics, null, new[] { typeof(Container), typeof(string), typeof(int) }, null);
 
-            var attached = 0;
-            if (TryPatch(harmony, listItems, null, nameof(ChestQueryPatches.ListItemsPostfix), "chest item list"))
+            var hooks = new[]
             {
-                attached++;
+                new Hook(listItems, null, nameof(ChestQueryPatches.ListItemsPostfix), "chest item list"),
+                new Hook(removeByItem, nameof(ChestQueryPatches.RemoveByItemPrefix), null, "remove-by-item"),
+                new Hook(removeByName, nameof(ChestQueryPatches.RemoveByNamePrefix), null, "remove-by-name"),
+            };
+
+            var attached = new List<Hook>();
+            foreach (var hook in hooks)
+            {
+                if (TryPatch(harmony, hook))
+                {
+                    attached.Add(hook);
+                }
             }
 
-            if (TryPatch(harmony, removeByItem, nameof(ChestQueryPatches.RemoveByItemPrefix), null, "remove-by-item"))
+            // All or nothing. The read hook without the removal hooks is the dangerous half:
+            // ValheimPlus would count a chest's materials, then run its own removal against the
+            // page this client holds - taking nothing from the server and calling the craft paid.
+            if (attached.Count < hooks.Length)
             {
-                attached++;
+                foreach (var hook in attached)
+                {
+                    Detach(harmony, hook);
+                }
+
+                Plugin.Log.LogWarning(
+                    $"ValheimPlus chest integration disabled: only {attached.Count} of {hooks.Length} " +
+                    "hooks could attach, and a partial set is worse than none. Bottomless chests " +
+                    "behave as they did before the integration existed.");
+                return;
             }
 
-            if (TryPatch(harmony, removeByName, nameof(ChestQueryPatches.RemoveByNamePrefix), null, "remove-by-name"))
-            {
-                attached++;
-            }
-
-            Attached = attached > 0;
-            Plugin.Log.LogInfo($"ValheimPlus chest integration: {attached} of 3 hook(s) attached.");
+            Attached = true;
+            Plugin.Log.LogInfo($"ValheimPlus chest integration: all {hooks.Length} hooks attached.");
         }
 
-        private static bool TryPatch(Harmony harmony, MethodInfo target, string prefix, string postfix, string what)
+        private sealed class Hook
         {
-            if (target == null)
+            internal Hook(MethodInfo target, string prefix, string postfix, string what)
             {
-                Plugin.Log.LogWarning(
-                    $"ValheimPlus's {what} method has changed shape; leaving that path as it was.");
+                Target = target;
+                Prefix = prefix == null ? null : AccessTools.Method(typeof(ChestQueryPatches), prefix);
+                Postfix = postfix == null ? null : AccessTools.Method(typeof(ChestQueryPatches), postfix);
+                What = what;
+            }
+
+            internal MethodInfo Target { get; }
+
+            internal MethodInfo Prefix { get; }
+
+            internal MethodInfo Postfix { get; }
+
+            internal string What { get; }
+        }
+
+        private static bool TryPatch(Harmony harmony, Hook hook)
+        {
+            if (hook.Target == null)
+            {
+                Plugin.Log.LogWarning($"ValheimPlus's {hook.What} method has changed shape.");
                 return false;
             }
 
             try
             {
                 harmony.Patch(
-                    target,
-                    prefix: prefix == null ? null : new HarmonyMethod(AccessTools.Method(typeof(ChestQueryPatches), prefix)),
-                    postfix: postfix == null ? null : new HarmonyMethod(AccessTools.Method(typeof(ChestQueryPatches), postfix)));
+                    hook.Target,
+                    prefix: hook.Prefix == null ? null : new HarmonyMethod(hook.Prefix),
+                    postfix: hook.Postfix == null ? null : new HarmonyMethod(hook.Postfix));
                 return true;
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning($"Could not attach to ValheimPlus's {what}: {ex.Message}");
+                Plugin.Log.LogWarning($"Could not attach to ValheimPlus's {hook.What}: {ex.Message}");
                 return false;
+            }
+        }
+
+        private static void Detach(Harmony harmony, Hook hook)
+        {
+            try
+            {
+                if (hook.Prefix != null)
+                {
+                    harmony.Unpatch(hook.Target, hook.Prefix);
+                }
+
+                if (hook.Postfix != null)
+                {
+                    harmony.Unpatch(hook.Target, hook.Postfix);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Still attached, but every hook body checks Attached, which stays false.
+                Plugin.Log.LogWarning($"Could not detach from ValheimPlus's {hook.What}: {ex.Message}");
             }
         }
     }
