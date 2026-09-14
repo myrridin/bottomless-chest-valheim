@@ -51,7 +51,8 @@ namespace BottomlessChest.Net
         /// Tells the server another mod consumed from a chest, against the index version it
         /// acted on.
         /// </summary>
-        internal static void TakeByName(string storeId, long version, string itemId, int quality, int amount)
+        /// <param name="minWorldLevel">Take only items at or above this world level; -1 for any.</param>
+        internal static void TakeByName(string storeId, long version, string itemId, int quality, int amount, int minWorldLevel = -1)
         {
             if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(itemId) || amount <= 0 || !Ready)
             {
@@ -64,6 +65,7 @@ namespace BottomlessChest.Net
             package.Write(version);
             package.Write(itemId);
             package.Write(quality);
+            package.Write(minWorldLevel);
             package.Write(amount);
             ToServer(package);
         }
@@ -598,6 +600,7 @@ namespace BottomlessChest.Net
                     package.ReadLong();
                     var itemId = package.ReadString();
                     var quality = package.ReadInt();
+                    var minWorldLevel = package.ReadInt();
                     var amount = package.ReadInt();
 
                     var session = ChestSessions.Acquire(storeId);
@@ -609,7 +612,7 @@ namespace BottomlessChest.Net
                     if (!RefusesToChange(session, sender, "a removal by another mod"))
                     {
                         // What is actually there, never what was claimed.
-                        if (session.RemoveByName(itemId, quality, amount) > 0)
+                        if (session.RemoveByName(itemId, quality, amount, minWorldLevel) > 0)
                         {
                             ChestSessions.Persist(session);
                         }
@@ -704,6 +707,8 @@ namespace BottomlessChest.Net
             {
                 reply.Write(entry.ItemId);
                 reply.Write(entry.Quality);
+                reply.Write(entry.WorldLevel);
+                reply.Write(entry.Cheated);
                 reply.Write(entry.Count);
             }
 
@@ -923,8 +928,10 @@ namespace BottomlessChest.Net
                     {
                         var itemId = package.ReadString();
                         var quality = package.ReadInt();
+                        var worldLevel = package.ReadInt();
+                        var cheated = package.ReadBool();
                         var held = package.ReadInt();
-                        items.Add(new Logic.IndexedItem(itemId, quality, held));
+                        items.Add(new Logic.IndexedItem(itemId, quality, held, worldLevel, cheated));
                     }
 
                     Indexes.Put(storeId, Logic.ChestIndex.From(generation, version, items));

@@ -300,7 +300,8 @@ namespace BottomlessChest.Core
         /// Keeps the open-stack index honest the same way <see cref="Take"/> does: a stack
         /// emptied is forgotten, a stack left part-full becomes the one the next deposit fills.
         /// </remarks>
-        internal int RemoveByName(string itemId, int quality, int amount)
+        /// <param name="minWorldLevel">Only items at or above this world level; -1 for any.</param>
+        internal int RemoveByName(string itemId, int quality, int amount, int minWorldLevel = -1)
         {
             if (string.IsNullOrEmpty(itemId) || amount <= 0)
             {
@@ -316,7 +317,8 @@ namespace BottomlessChest.Core
                 var item = items[i];
                 if (item == null
                     || new ItemAdapter(item).ItemId != itemId
-                    || (quality >= 0 && item.m_quality != quality))
+                    || (quality >= 0 && item.m_quality != quality)
+                    || (minWorldLevel >= 0 && item.m_worldLevel < minWorldLevel))
                 {
                     continue;
                 }

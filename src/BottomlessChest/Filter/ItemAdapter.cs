@@ -90,6 +90,10 @@ namespace BottomlessChest.Filter
 
         public string CustomData => null;
 
+        public int WorldLevel => _item.m_worldLevel;
+
+        public bool Cheated => _item.m_cheated;
+
         private static ItemKind Classify(ItemDrop.ItemData.ItemType type)
         {
             switch (type)

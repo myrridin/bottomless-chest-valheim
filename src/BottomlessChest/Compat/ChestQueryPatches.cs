@@ -252,6 +252,12 @@ namespace BottomlessChest.Compat
 
                     var standIn = template.Clone();
                     standIn.m_quality = index.Entries[i].Quality;
+
+                    // At the level and cheat state the chest really holds. Templates carry the
+                    // prefab's world level, which vanilla's "at or above the world's" filter
+                    // rejects in any world above level 0.
+                    standIn.m_worldLevel = index.Entries[i].WorldLevel;
+                    standIn.m_cheated = index.Entries[i].Cheated;
                     cached.Items.Add(standIn);
                     cached.EntryOf.Add(i);
                 }

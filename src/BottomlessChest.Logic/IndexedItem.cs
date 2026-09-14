@@ -5,16 +5,18 @@ namespace BottomlessChest.Logic
     /// through the same <see cref="ChestIndex.From"/> path on both ends.
     /// </summary>
     /// <remarks>
-    /// Only the three fields an index needs are real. The rest satisfy the interface and
+    /// Only the fields an index needs are real. The rest satisfy the interface and
     /// are never read: an index answers "how much", never "which one".
     /// </remarks>
     public sealed class IndexedItem : IStorableItem
     {
-        public IndexedItem(string itemId, int quality, int stack)
+        public IndexedItem(string itemId, int quality, int stack, int worldLevel = 0, bool cheated = false)
         {
             ItemId = itemId;
             Quality = quality;
             Stack = stack;
+            WorldLevel = worldLevel;
+            Cheated = cheated;
         }
 
         public string ItemId { get; }
@@ -22,6 +24,10 @@ namespace BottomlessChest.Logic
         public int Quality { get; }
 
         public int Stack { get; }
+
+        public int WorldLevel { get; }
+
+        public bool Cheated { get; }
 
         public string DisplayName => ItemId;
 

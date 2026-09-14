@@ -1,15 +1,18 @@
+using System;
 using System.Collections.Generic;
 
 namespace BottomlessChest.Logic
 {
-    /// <summary>One item type and quality, and how much of it a chest holds.</summary>
+    /// <summary>One item type, quality, world level and cheated state, and how much of it a chest holds.</summary>
     public readonly struct IndexEntry
     {
-        public IndexEntry(string itemId, int quality, int count)
+        public IndexEntry(string itemId, int quality, int count, int worldLevel, bool cheated)
         {
             ItemId = itemId;
             Quality = quality;
             Count = count;
+            WorldLevel = worldLevel;
+            Cheated = cheated;
         }
 
         /// <summary>Stable prefab name, so the server and client agree on what was asked for.</summary>
@@ -18,6 +21,15 @@ namespace BottomlessChest.Logic
         public int Quality { get; }
 
         public int Count { get; }
+
+        /// <summary>
+        /// Kept apart because vanilla counts only items at or above the world's level; a total
+        /// across levels would claim materials a craft may not use.
+        /// </summary>
+        public int WorldLevel { get; }
+
+        /// <summary>Kept apart so a station can mark what it makes from cheated items as cheated.</summary>
+        public bool Cheated { get; }
     }
 
     /// <summary>
@@ -76,17 +88,17 @@ namespace BottomlessChest.Logic
                         continue;
                     }
 
-                    var key = item.ItemId + "/" + item.Quality;
+                    var key = item.ItemId + "/" + item.Quality + "/" + item.WorldLevel + "/" + (item.Cheated ? "1" : "0");
 
                     if (seen.TryGetValue(key, out var at))
                     {
-                        entries[at] = new IndexEntry(
-                            entries[at].ItemId, entries[at].Quality, entries[at].Count + item.Stack);
+                        var e = entries[at];
+                        entries[at] = new IndexEntry(e.ItemId, e.Quality, e.Count + item.Stack, e.WorldLevel, e.Cheated);
                     }
                     else
                     {
                         seen[key] = entries.Count;
-                        entries.Add(new IndexEntry(item.ItemId, item.Quality, item.Stack));
+                        entries.Add(new IndexEntry(item.ItemId, item.Quality, item.Stack, item.WorldLevel, item.Cheated));
                     }
                 }
             }
@@ -115,6 +127,36 @@ namespace BottomlessChest.Logic
         }
 
         /// <summary>
+        /// How much is held of every entry whose item id matches, at a quality and minimum world
+        /// level. A negative quality or world level means any.
+        /// </summary>
+        /// <remarks>
+        /// By predicate because the questions arrive as shared-name tokens, which only the mod
+        /// can resolve to prefab names.
+        /// </remarks>
+        public int Count(Func<string, bool> itemIdMatches, int quality, int minWorldLevel)
+        {
+            if (itemIdMatches == null)
+            {
+                return 0;
+            }
+
+            var total = 0;
+            foreach (var entry in _entries)
+            {
+                if ((quality < 0 || entry.Quality == quality)
+                    && (minWorldLevel < 0 || entry.WorldLevel >= minWorldLevel)
+                    && entry.Count > 0
+                    && itemIdMatches(entry.ItemId))
+                {
+                    total += entry.Count;
+                }
+            }
+
+            return total;
+        }
+
+        /// <summary>
         /// Deducts up to <paramref name="amount"/> and reports how much was actually taken.
         /// </summary>
         /// <remarks>
@@ -123,7 +165,7 @@ namespace BottomlessChest.Logic
         /// figure larger than the chest can honour would overdraw it. Erring low costs the
         /// player a craft; erring high costs the chest.
         /// </remarks>
-        public int Take(string itemId, int quality, int amount)
+        public int Take(string itemId, int quality, int amount, int minWorldLevel = -1)
         {
             if (itemId == null || amount <= 0)
             {
@@ -134,13 +176,15 @@ namespace BottomlessChest.Logic
             for (var i = 0; i < _entries.Length && taken < amount; i++)
             {
                 var entry = _entries[i];
-                if (entry.ItemId != itemId || (quality >= 0 && entry.Quality != quality))
+                if (entry.ItemId != itemId
+                    || (quality >= 0 && entry.Quality != quality)
+                    || (minWorldLevel >= 0 && entry.WorldLevel < minWorldLevel))
                 {
                     continue;
                 }
 
                 var from = entry.Count < amount - taken ? entry.Count : amount - taken;
-                _entries[i] = new IndexEntry(entry.ItemId, entry.Quality, entry.Count - from);
+                _entries[i] = new IndexEntry(entry.ItemId, entry.Quality, entry.Count - from, entry.WorldLevel, entry.Cheated);
                 taken += from;
             }
 

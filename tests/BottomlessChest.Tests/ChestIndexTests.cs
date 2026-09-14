@@ -146,5 +146,57 @@ namespace BottomlessChest.Tests
             Assert.Equal(0, index.Take("Wood", -1, -5));
             Assert.Equal(10, index.CountOf("Wood", -1));
         }
+            private static TestItem Leveled(string id, int stack, int worldLevel, bool cheated = false) =>
+            new TestItem(id, ItemKind.Material, stack, itemId: id, maxStackSize: 50, worldLevel: worldLevel, cheated: cheated);
+
+        [Fact]
+        public void DifferentWorldLevelsStaySeparate()
+        {
+            // Vanilla only counts items at or above the world level; merging would hide which.
+            var index = ChestIndex.From(1, 1, new[] { Leveled("Wood", 10, 0), Leveled("Wood", 5, 2) });
+
+            Assert.Equal(2, index.Entries.Count);
+            Assert.Contains(index.Entries, e => e.WorldLevel == 2 && e.Count == 5);
+        }
+
+        [Fact]
+        public void CheatedAndHonestItemsStaySeparate()
+        {
+            var index = ChestIndex.From(1, 1, new[] { Leveled("CopperOre", 10, 0), Leveled("CopperOre", 3, 0, cheated: true) });
+
+            Assert.Equal(2, index.Entries.Count);
+            Assert.Contains(index.Entries, e => e.Cheated && e.Count == 3);
+        }
+
+        [Fact]
+        public void CountFiltersByNameQualityAndMinimumWorldLevel()
+        {
+            var index = ChestIndex.From(1, 1, new[]
+            {
+                Leveled("Wood", 10, 0), Leveled("Wood", 5, 2), Leveled("Stone", 7, 2),
+            });
+
+            Assert.Equal(15, index.Count(id => id == "Wood", -1, -1));
+            Assert.Equal(5, index.Count(id => id == "Wood", -1, 1));
+            Assert.Equal(0, index.Count(id => id == "Wood", 3, -1));
+            Assert.Equal(22, index.Count(_ => true, -1, -1));
+        }
+
+        [Fact]
+        public void TakeLeavesItemsBelowTheMinimumWorldLevel()
+        {
+            var index = ChestIndex.From(1, 1, new[] { Leveled("Wood", 10, 0), Leveled("Wood", 5, 2) });
+
+            Assert.Equal(5, index.Take("Wood", -1, 8, minWorldLevel: 2));
+            Assert.Equal(10, index.Count(id => id == "Wood", -1, -1));
+        }
+
+        [Fact]
+        public void TakeWithoutAMinimumWorldLevelTakesAnyLevel()
+        {
+            var index = ChestIndex.From(1, 1, new[] { Leveled("Wood", 10, 0), Leveled("Wood", 5, 2) });
+
+            Assert.Equal(12, index.Take("Wood", -1, 12));
+        }
     }
 }
