@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.2.1
+
+**Fixes a way chest contents could be lost on player-hosted servers.** Recommended for anyone
+who plays on a server hosted from a player's game, and for anyone running ValheimPlus 10.1.2
+on a dedicated server.
+
+Nothing about how chests are stored has changed. Upgrading from 0.2.0 or 0.1.0 is safe, and
+going back to 0.2.0 is too.
+
+### What went wrong
+
+When a chest was loaded on the machine running the server - always the case near the host of
+a player-hosted game - that machine held the chest twice: once as the chest in the world, and
+once for whichever remote player had it open. Both wrote the whole chest to storage, and
+neither noticed the other's changes.
+
+So a remote player's deposit could be erased the next time the host touched that chest. And a
+change made on the host while a remote player had the chest open could be undone when they
+closed it - taken items coming back.
+
+This has been possible since 0.1.0. Single-player was never affected. Dedicated servers were
+only exposed around the world's centre, where the server itself keeps the area loaded, and
+only when something there changes a chest on the server's side - which ValheimPlus 10.1.2
+stations do.
+
+Items already lost this way cannot be brought back by the update.
+
+### The fix
+
+The server now holds exactly one copy of each chest in memory. A remote player's session uses
+the loaded chest itself; a chest that loads while someone has it open takes over what they
+were working with; and a change made on the server's side tells the open session, so it
+refreshes instead of acting on what it last saw. Verified in both directions against the
+stored file.
+
+### Other
+
+- Rebinding a chest with `bottomless rebind` from another player's game, while the host also
+  had that chest loaded, left the host holding the old contents under the new store id. The
+  host's next change to the chest then saved those old contents over the store being
+  recovered. The host now notices the rebind and reloads.
+- New console commands for looking into storage: `bottomless probe` shows each copy of the
+  nearest chest side by side, and `bottomless trace on [prefab]` logs every load and save.
+  `session-put`, `session-hold` and `session-release` reproduce a remote player's side of a
+  chest on one machine; like `fill` and `empty`, they need `EnableTestingCommands` and
+  `devcommands`.
+
 ## 0.2.0
 
 **Requires Valheim 1.0.** This release does not work on 0.221 or earlier — 1.0 renamed a

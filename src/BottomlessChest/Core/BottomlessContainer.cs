@@ -32,6 +32,20 @@ namespace BottomlessChest.Core
         private bool _contentsLoaded;
         private bool _warnedAboutUnloadedSave;
         private bool _loadWasPartial;
+        private bool _warnedAboutSplitCopies;
+
+        /// <summary>
+        /// The store id the in-memory contents were loaded from, or null while nothing is loaded.
+        /// </summary>
+        /// <remarks>
+        /// Not the same question as <see cref="CurrentStoreId"/>, which reads the ZDO. A rebind
+        /// made on another machine changes the ZDO here without reloading anything, and from
+        /// that moment the two disagree: the inventory still holds the old store's contents
+        /// under the new id. Saving by the ZDO's id then wrote those old contents over the very
+        /// store being recovered, and a session sharing this inventory by that id did the same.
+        /// Everything that writes or shares contents keys off this instead.
+        /// </remarks>
+        private string _loadedStoreId;
         private readonly ContentsWatch _watch = new ContentsWatch();
 
 
@@ -55,6 +69,37 @@ namespace BottomlessChest.Core
             found = null;
             return false;
         }
+
+        /// <summary>
+        /// Finds a chest whose contents this machine has actually loaded, by store id.
+        /// </summary>
+        /// <remarks>
+        /// A session uses this chest's inventory rather than loading its own. A chest that is
+        /// registered but not yet loaded does not qualify: its inventory is empty, and it will
+        /// take over the session's contents itself when it loads.
+        /// </remarks>
+        internal static bool TryResolveLoaded(string storeId, out BottomlessContainer found)
+        {
+            foreach (var candidate in Registry.Values)
+            {
+                if (candidate._container != null && candidate._loadedStoreId == storeId)
+                {
+                    found = candidate;
+                    return true;
+                }
+            }
+
+            found = null;
+            return false;
+        }
+
+        internal bool LoadWasPartial => _loadWasPartial;
+
+        /// <summary>
+        /// Stops this chest saving until it is loaded again, because something sharing its
+        /// inventory found the contents in memory can no longer be trusted.
+        /// </summary>
+        internal void MarkContentsUntrusted() => _loadWasPartial = true;
 
         /// <summary>Sends any debounced snapshot immediately, e.g. when the chest is closed.</summary>
         internal static void FlushAllPending()
@@ -121,15 +166,63 @@ namespace BottomlessChest.Core
             }
 
             zdo.Set(StoreIdKey, storeId);
-
-            _container.m_loading = true;
-            _container.m_inventory.RemoveAll();
-            _container.m_loading = false;
-
-            _contentsLoaded = false;
-            _warnedAboutUnloadedSave = false;
+            ClearForReload();
 
             return LoadFromStore();
+        }
+
+        /// <summary>
+        /// Changes the store id on the ZDO and nothing else - which is exactly how a rebind made
+        /// on another machine arrives here. A testing aid; see <see cref="LoadFromStore"/>.
+        /// </summary>
+        internal bool SetStoreIdOnly(string storeId)
+        {
+            var zdo = _nview != null && _nview.IsValid() ? _nview.GetZDO() : null;
+            if (zdo == null || !_nview.IsOwner())
+            {
+                return false;
+            }
+
+            zdo.Set(StoreIdKey, storeId);
+            return true;
+        }
+
+        /// <summary>
+        /// Empties the chest ahead of loading different contents into it.
+        /// </summary>
+        /// <remarks>
+        /// A session may be sharing this inventory for the store being left. Emptying and
+        /// refilling the same object under it would have that session write the new store's
+        /// contents under the old id - destroying the old contents and duplicating the new. So
+        /// the session is handed its own copy first, holding the same items in the same order,
+        /// and goes on writing the old contents to the old id as it should.
+        /// </remarks>
+        private void ClearForReload()
+        {
+            if (!string.IsNullOrEmpty(_loadedStoreId)
+                && ChestSessions.TryGet(_loadedStoreId, out var session)
+                && ReferenceEquals(session.Inventory, _container.m_inventory))
+            {
+                var own = new Inventory("bottomless", null, Filter.ChestView.WidthForSession, 1);
+                own.m_inventory.AddRange(_container.m_inventory.m_inventory);
+                InventoryCapacity.ApplyFor(own, own.m_inventory.Count);
+                session.AdoptInventory(own);
+                StoreTrace.Session("given its own copy, the chest is being reloaded", session);
+            }
+
+            _container.m_loading = true;
+            try
+            {
+                _container.m_inventory.RemoveAll();
+            }
+            finally
+            {
+                _container.m_loading = false;
+            }
+
+            _contentsLoaded = false;
+            _loadedStoreId = null;
+            _warnedAboutUnloadedSave = false;
         }
 
         /// <summary>
@@ -158,6 +251,7 @@ namespace BottomlessChest.Core
             }
 
             Registry[_container] = this;
+            StoreTrace.Container("awake", null, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
         }
 
         /// <summary>
@@ -186,6 +280,7 @@ namespace BottomlessChest.Core
 
             if (_container != null)
             {
+                StoreTrace.Container("destroyed", CurrentStoreId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
                 InventoryCapacity.Forget(_container.m_inventory);
                 Registry.Remove(_container);
             }
@@ -276,11 +371,16 @@ namespace BottomlessChest.Core
         /// <summary>Serializes the live inventory into the store. Called instead of Container.Save.</summary>
         internal void SaveToStore()
         {
-            var storeId = GetOrCreateStoreId();
+            // Under the id the contents were loaded from. Until a rebind made elsewhere has been
+            // noticed and reloaded, the ZDO already names the new store while this inventory
+            // still holds the old one's contents.
+            var storeId = _loadedStoreId ?? GetOrCreateStoreId();
             if (storeId == null)
             {
                 return;
             }
+
+            StoreTrace.Container("save requested", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
 
             // A partial load is more dangerous than a failed one: the chest looks populated,
             // just smaller, so nothing seems wrong until the truncated copy is written back
@@ -339,12 +439,54 @@ namespace BottomlessChest.Core
                 InventoryCapacity.Apply(_container.m_inventory);
             }
 
+            // Every change made on this machine outside a session reaches the store through
+            // here - the host's own moves, ValheimPlus stations, console commands. A session
+            // sharing this inventory has to hear about them, or its index and order go stale.
+            if (ChestSessions.TryGet(storeId, out var session))
+            {
+                if (!ReferenceEquals(session.Inventory, _container.m_inventory))
+                {
+                    // Two separate copies again, which sharing exists to make impossible.
+                    // Writing ours would overwrite the session's changes, so do not.
+                    if (!_warnedAboutSplitCopies)
+                    {
+                        _warnedAboutSplitCopies = true;
+                        Plugin.Log.LogError(
+                            $"Chest {storeId} is held by a session with a separate copy of its " +
+                            "contents. Refusing to save this copy over the session's; this is a " +
+                            "bug in the mod.");
+                    }
+
+                    return;
+                }
+
+                if (session.ReadOnly)
+                {
+                    // The session gave up on these contents - consolidation already rewrote
+                    // the list it shares with us before finding the count wrong. Same door as
+                    // a short load: this chest stops saving until it is loaded again.
+                    _loadWasPartial = true;
+                    if (!_warnedAboutUnloadedSave)
+                    {
+                        _warnedAboutUnloadedSave = true;
+                        Plugin.Log.LogError(
+                            $"Refusing to save chest {storeId}: its session is read-only, so the " +
+                            "contents in memory cannot be trusted. The stored copy is left untouched.");
+                    }
+
+                    return;
+                }
+
+                session.OnExternalChange();
+            }
+
             var payload = Storage.InventorySerializer.Save(_container.m_inventory, storeId);
             if (payload == null)
             {
                 return;
             }
 
+            StoreTrace.Container("save wrote", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
             SidecarStore.Instance.Put(storeId, payload);
         }
 
@@ -408,6 +550,53 @@ namespace BottomlessChest.Core
                 Plugin.Log.LogInfo(
                     $"Consolidated {collapsed} part-stack(s) on load; " +
                     $"{_container.m_inventory.m_inventory.Count} stack(s) left.");
+            }
+        }
+
+        /// <summary>
+        /// Takes on the contents of a session that opened this chest before it loaded here,
+        /// and hands the session this chest's inventory in exchange.
+        /// </summary>
+        /// <remarks>
+        /// The items are the session's own objects, copied across in the same order, so the
+        /// pages its client holds still name the same items. Only grid positions are rewritten.
+        /// </remarks>
+        private void AdoptSession(string storeId, ChestSession session)
+        {
+            _contentsLoaded = true;
+            _loadedStoreId = storeId;
+
+            if (ReferenceEquals(session.Inventory, _container.m_inventory))
+            {
+                _loadWasPartial = session.ReadOnly;
+                return;
+            }
+
+            try
+            {
+                // As on load: populating the inventory must not fire a save back.
+                _container.m_loading = true;
+                InventoryCapacity.Suspended = true;
+                _watch.Rebaseline();
+
+                // Copied first: clearing the destination before reading a list that happened
+                // to be the same object would empty the chest.
+                var incoming = new List<ItemDrop.ItemData>(session.Inventory.m_inventory);
+                var items = _container.m_inventory.m_inventory;
+                items.Clear();
+                items.AddRange(incoming);
+                _loadWasPartial = session.ReadOnly;
+
+                InventoryCapacity.Repack(_container.m_inventory);
+                InventoryCapacity.Apply(_container.m_inventory);
+                session.AdoptInventory(_container.m_inventory);
+
+                StoreTrace.Container("adopted open session", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
+            }
+            finally
+            {
+                _container.m_loading = false;
+                InventoryCapacity.Suspended = false;
             }
         }
 
@@ -477,7 +666,22 @@ namespace BottomlessChest.Core
         {
             if (_contentsLoaded)
             {
-                return false;
+                // Vanilla calls this once a second, which makes it the place to notice a rebind
+                // made on another machine: the ZDO's id has moved on and nothing reloaded. Every
+                // change until now was saved under the old id, so the old contents are safe in
+                // the store; clear them and load what the chest now points at.
+                var current = CurrentStoreId;
+                if (!SidecarStore.IsServerAuthority
+                    || string.IsNullOrEmpty(_loadedStoreId)
+                    || string.IsNullOrEmpty(current)
+                    || current == _loadedStoreId)
+                {
+                    return false;
+                }
+
+                Plugin.Log.LogInfo(
+                    $"Chest was rebound from {_loadedStoreId} to {current} on another machine; reloading it.");
+                ClearForReload();
             }
 
             var storeId = GetOrCreateStoreId();
@@ -500,7 +704,17 @@ namespace BottomlessChest.Core
                 return false;
             }
 
+            // A session already holds this chest - a remote player opened it before it loaded
+            // here. Its contents are newer than the store's by however many changes it has
+            // made, so they are what this chest takes on, not the file.
+            if (ChestSessions.TryGet(storeId, out var session))
+            {
+                AdoptSession(storeId, session);
+                return true;
+            }
+
             _contentsLoaded = true;
+            _loadedStoreId = storeId;
 
             if (!SidecarStore.Instance.TryGet(storeId, out var contents) || contents == null || contents.Length == 0)
             {
@@ -517,6 +731,7 @@ namespace BottomlessChest.Core
                 LoadIntoInventory(contents);
                 InventoryCapacity.Repack(_container.m_inventory);
                 InventoryCapacity.Apply(_container.m_inventory);
+                StoreTrace.Container("loaded", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
                 return true;
             }
             catch (Exception ex)

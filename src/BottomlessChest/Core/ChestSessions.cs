@@ -36,10 +36,28 @@ namespace BottomlessChest.Core
                 return null;
             }
 
-            var inventory = new Inventory("bottomless", null, ChestView.WidthForSession, 1);
+            Inventory inventory;
             var partial = false;
+            var shared = false;
+            BottomlessContainer sharedWith = null;
 
-            if (SidecarStore.Instance.TryGet(storeId, out var contents) && contents != null && contents.Length > 0)
+            // On the server authority the chest may already be loaded in the world - always on
+            // a player-hosted server near the host, and on a dedicated server near world origin.
+            // Its inventory is then the chest, and loading a second copy from the store is what
+            // let the two drift apart and overwrite each other. Use that one instead.
+            if (SidecarStore.IsServerAuthority && BottomlessContainer.TryResolveLoaded(storeId, out var loaded))
+            {
+                inventory = loaded.Inventory;
+                partial = loaded.LoadWasPartial;
+                shared = true;
+                sharedWith = loaded;
+            }
+            else
+            {
+                inventory = new Inventory("bottomless", null, ChestView.WidthForSession, 1);
+            }
+
+            if (!shared && SidecarStore.Instance.TryGet(storeId, out var contents) && contents != null && contents.Length > 0)
             {
                 // Size the grid before loading. A payload that routes to the game's own
                 // loader goes through Inventory.AddItem, which silently refuses everything
@@ -71,6 +89,7 @@ namespace BottomlessChest.Core
 
             var session = new ChestSession(storeId, inventory) { ReadOnly = partial };
             Open[storeId] = session;
+            StoreTrace.Session(shared ? "opened, sharing the loaded chest's inventory" : "opened", session);
 
             // Before any page is built, so the numbering a client is handed is the numbering
             // it will still be holding. A read-only session is left alone: its contents are
@@ -81,6 +100,14 @@ namespace BottomlessChest.Core
             if (!session.ReadOnly && session.Consolidate())
             {
                 Persist(session);
+            }
+
+            // A failed consolidation has already rewritten the list before finding the count
+            // wrong, and a shared list is the chest's too. Marked now rather than when the
+            // chest next saves: by then this session may be released and leave no trace.
+            if (shared && session.ReadOnly)
+            {
+                sharedWith.MarkContentsUntrusted();
             }
 
             Plugin.Log.LogDebug($"Opened session for chest {storeId} with {session.TotalCount} stacks.");
@@ -100,6 +127,7 @@ namespace BottomlessChest.Core
 
             Persist(session);
             Open.Remove(storeId);
+            StoreTrace.Session("released", session);
         }
 
         /// <summary>Serializes a session's live contents into the store.</summary>
@@ -117,6 +145,14 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            // A session appends without going through AddItem, so nothing regrows the grid.
+            // When it shares a loaded chest's inventory that matters: the host's next AddItem
+            // would find no free slot and silently drop the item.
+            if (InventoryCapacity.IsUnbounded(session.Inventory))
+            {
+                InventoryCapacity.Apply(session.Inventory);
+            }
+
             // Same door as BottomlessContainer.SaveToStore. This is the dedicated-server
             // write path, and it was writing raw Inventory.Save straight into the store -
             // a different format from the other writer, with no count check, into the same
@@ -127,6 +163,7 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            StoreTrace.Session("persist wrote", session);
             SidecarStore.Instance.Put(session.StoreId, payload);
         }
 
