@@ -43,6 +43,23 @@ namespace BottomlessChest.Logic
             return count <= 0 ? 0 : ((count - 1) / width) + 1;
         }
 
+        /// <summary>
+        /// The furthest a paged window can scroll: the first row from which every remaining item
+        /// fits on one page.
+        /// </summary>
+        /// <remarks>
+        /// A page holds <paramref name="pageSlots"/> items, fewer than a full window, because its
+        /// last slot is kept free for dropping. Counting whole rows of items instead let the
+        /// window scroll one row past the end and show a completely empty row under the last
+        /// items.
+        /// </remarks>
+        public static int LastPageRow(int count, int width, int pageSlots)
+        {
+            RequirePositiveWidth(width);
+
+            return count <= pageSlots ? 0 : RowsNeeded(count - pageSlots, width);
+        }
+
         /// <summary>How many rows the chest window should offer for a given item count.</summary>
         /// <remarks>
         /// Always leaves one empty row beyond the contents. Valheim decides an inventory is

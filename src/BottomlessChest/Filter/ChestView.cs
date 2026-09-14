@@ -470,6 +470,12 @@ namespace BottomlessChest.Filter
 
         private static int MaxScrollRow()
         {
+            // Must agree with ChestSession.Page, or the last row becomes unreachable.
+            if (_remote)
+            {
+                return GridPacker.LastPageRow(_matchCount, Width, PageSlots);
+            }
+
             var rows = TotalRows - RowsCarried;
             return rows < 0 ? 0 : rows;
         }

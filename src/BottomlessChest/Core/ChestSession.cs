@@ -193,7 +193,8 @@ namespace BottomlessChest.Core
         {
             EnsureOrder();
 
-            var maxRow = Mathf.Max(0, GridPacker.RowsNeeded(_ordered.Count, ChestView.Width) - (ChestView.VisibleRows - 1));
+            // Must agree with ChestView.MaxScrollRow on the client, or the last row becomes unreachable.
+            var maxRow = GridPacker.LastPageRow(_ordered.Count, ChestView.Width, ChestView.PageSlots);
             LastScrollRow = Mathf.Clamp(scrollRow, 0, maxRow);
 
             var page = new List<ItemDrop.ItemData>(count);

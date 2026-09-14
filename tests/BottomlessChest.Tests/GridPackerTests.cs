@@ -53,5 +53,19 @@ namespace BottomlessChest.Tests
             Assert.Equal(count, seen.Count);
             Assert.Equal(1250, GridPacker.RowsNeeded(count, width));
         }
+
+        [Theory]
+        [InlineData(0, 0)]
+        [InlineData(31, 0)]
+        [InlineData(32, 1)]
+        [InlineData(39, 1)]
+        [InlineData(40, 2)]
+        [InlineData(77, 6)]
+        public void TheLastPageRowShowsTheFinalItemsWithoutAnEmptyRowBelow(int count, int expected)
+        {
+            // A page is 8 wide and holds 31 items: its last slot is kept free for dropping.
+            // The last row is the first one from which every remaining item fits on the page.
+            Assert.Equal(expected, GridPacker.LastPageRow(count, 8, 31));
+        }
     }
 }
