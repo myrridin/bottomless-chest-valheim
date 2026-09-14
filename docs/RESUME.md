@@ -88,6 +88,14 @@ has to be read with that in mind.
 - [ ] **B10. `/code-review` the branch.** Storage and network code; every round so far has
       found real defects that self-review did not.
 
+      Round 1 (2026-09-14, before B9) found two, both fixed in `f1240ee`:
+      - A read-only chest still advertised its index, so a client could keep answering V+ from
+        it indefinitely: free materials. It now sends an empty index.
+      - Clients polled for indexes with no V+ attached, holding every nearby chest in server
+        memory for nothing. Polling is now gated on `ValheimPlusBridge.Attached`.
+
+      Re-review after B9's fixes.
+
 ### C. Requested by the user
 
 - [ ] **C11. Default build cost → the wooden chest's.** Believed to be `Wood:10`; confirm
