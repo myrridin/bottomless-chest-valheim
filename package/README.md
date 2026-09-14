@@ -5,7 +5,8 @@ things again.
 
 ## What it does
 
-- **Unlimited storage.** One chest replaces a wall of them. Tested with a million stacks.
+- **Unlimited storage.** One chest replaces a wall of them. Tested with 100,000 stacks. A
+  million still works, but makes a server close to unusable.
 - **Type to find.** A search box sits at the top of the chest window and filters as you
   type. Matching items are grouped by name so like things sit together.
 - **Category search.** `@food`, `@weapon`, `@armor`, `@material`, `@ammo`, `@tool`,
@@ -26,13 +27,9 @@ Hammer, under Furniture, at a workbench. The cost is configurable.
 - The **mouse wheel** or the **scrollbar** moves through a large chest.
 - The green slot at the end of the page is always free, so there is somewhere to drop into
   a full chest.
-- Holding the use key deposits matching stacks without opening the chest.
 
 ## Notes
 
-- **Everyone on a server needs the mod**, including the server itself. Joining without it
-  is refused with a version mismatch rather than allowed - a client that cannot resolve the
-  chest would otherwise destroy it.
 - **A chest that still holds something cannot be dismantled.** Emptying an unlimited chest
   onto the ground would spawn an item for every stack, which is not something a world
   recovers from.
@@ -53,7 +50,6 @@ Hammer, under Furniture, at a workbench. The cost is configurable.
 | `Appearance.LidTint` | `#2E2E33` | Colour over the lid |
 | `Appearance.GlowColour` | `#8FA86B` | Colour of the lid glow |
 | `Appearance.GlowStrength` | `0.35` | Glow intensity; above 1 blooms |
-| `Multiplayer.SnapshotDebounceSeconds` | `1.5` | Delay before sending changes to the server |
 
 ## Commands
 

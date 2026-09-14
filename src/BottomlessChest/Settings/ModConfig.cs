@@ -11,7 +11,6 @@ namespace BottomlessChest.Settings
     internal static class ModConfig
     {
         internal static ConfigEntry<string> RecipeRequirements;
-        internal static ConfigEntry<float> SnapshotDebounceSeconds;
         internal static ConfigEntry<float> ModelScale;
         internal static ConfigEntry<string> BodyTint;
         internal static ConfigEntry<string> LidTint;
@@ -33,12 +32,6 @@ namespace BottomlessChest.Settings
                     "chest - which is already small. Colliders scale too, so low values make " +
                     "it fiddly to click. Requires a restart.",
                     new AcceptableValueRange<float>(0.25f, 3f)));
-
-            SnapshotDebounceSeconds = cfg.Bind("Multiplayer", "SnapshotDebounceSeconds", 1.5f,
-                new ConfigDescription(
-                    "How long to wait after the last change before sending a chest's contents " +
-                    "to the server. Batches a burst of item moves into one message.",
-                    new AcceptableValueRange<float>(0.1f, 10f)));
 
             BodyTint = cfg.Bind("Appearance", "BodyTint", "#C4C2BC",
                 "Hex colour multiplied over the chest body. Darker values read as a solid " +

@@ -264,21 +264,25 @@ has to be read with that in mind.
 - [ ] **C12. Make the chest look good instead of drab.** Current defaults: body `#C4C2BC`,
       lid `#2E2E33`, glow `#8FA86B` at `0.35`. Needs in-game screenshots to judge. Same
       stored-default problem as C11, same proposed answer.
-- [ ] **C13. Remove `SnapshotDebounceSeconds`.** Bound in `ModConfig.cs`, read by nothing
+- [x] **C13. Remove `SnapshotDebounceSeconds`.** Done: binding and README row removed.
+      BepInEx 5.4 keeps unknown keys as orphaned entries and writes them back, so existing
+      files keep the line, harmlessly. Bound in `ModConfig.cs`, read by nothing
       since `9065391` ("Page chest contents from the server instead of sending them whole").
       The user asked for a static value matching current behaviour; there is no current
       behaviour — deleting it changes nothing. Existing config files keep an orphaned
       `[Multiplayer]` entry, as they already do for `UnlimitedStacks` and
       `MaxStackMultiplier`. Check how BepInEx 5.4 exposes orphaned entries before promising to
       clean them up.
-- [ ] **C14. README.**
+- [x] **C14. README.** Done in `package/README.md`; the 0.3.0 changelog entry must restate
+      the 100,000-stack limit.
       - Line 8: say tested with 100,000 stacks; a million works but makes a server more or
         less unusable.
       - Line 29: remove "Holding the use key deposits matching stacks…" — standard Valheim.
       - Line 33: remove "Everyone on a server needs the mod" — standard for any mod.
       - The 0.2.0 changelog calls a million "the ceiling". Leave that entry alone; restate the
         limit in the 0.3.0 entry so README and changelog agree.
-- [ ] **C18. Hide the "F" on the search box.** The field is cloned from `BuildUi.m_searchField`,
+- [x] **C18. Hide the "F" on the search box.** Done in `f6ef9a5`: the clone's `UIGamePad` is
+      destroyed and search answers View/Back instead (user choice, B9 run 6). The field is cloned from `BuildUi.m_searchField`,
       and the clone carries the build panel's `UIGamePad` (key F / `JoyLStick`, `v1.0.cs:40171`
       and class at `62225`). Its `m_hint` shows whenever `ZInput.IsGamepadActive()`, hence
       "sometimes"; the key never focuses our clone. User: don't display it, clicking is fine.

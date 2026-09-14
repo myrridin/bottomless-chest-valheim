@@ -31,7 +31,7 @@ dotnet test tests/BottomlessChest.Tests/BottomlessChest.Tests.csproj
 |---|---|
 | `src/BottomlessChest.Logic` | Search, sorting, grid maths. **References neither Unity nor Valheim**, which is what makes it testable — and lets the server run the same search code as the client. |
 | `src/BottomlessChest` | The mod: piece registration, storage, networking, GUI. |
-| `tests/` | 73 tests, all against the logic assembly. Everything else needs a running game. |
+| `tests/` | Unit tests, all against the logic assembly. Everything else needs a running game. |
 | `scripts/` | Dev server setup and control, sidecar store dump/merge tools, packaging. |
 
 ## How it works
