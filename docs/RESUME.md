@@ -85,6 +85,33 @@ has to be read with that in mind.
       building, stations (smelter family, cooking, fermenter, beehive, sap collector, shield
       generator, fireplace), auto-stack sweep, and V+'s container-panel resize alongside our
       scrollbar and drop marker. `dump-store.py` is the witness for every consumption test.
+
+      **B9 run 1 (2026-09-14): in progress. Two real bugs found, both shipped in 0.2.x.**
+      - **Setup and baseline.** The test chest `c662fb15` (server world `bottomlessdev`,
+        away from spawn) was filled with `bottomless fill` (vanilla `spawn` cannot run on a
+        dedicated server's client in 1.0). Baseline from the store: Wood 2000, Stone 500,
+        SurtlingCore 100. Server backup: `backup-2026-09-14-before-B9-server-save/`. Decoders:
+        `storeitems.py` and `conserve.py` in the session scratchpad; the 1.0 per-item format is
+        `ItemData.Save`, v1.0.cs ~69383.
+      - **Bug 1: ValheimPlus 10.1.2 cannot see bottomless chests at all. Fixed in `55bbb48`,
+        not yet deployed or verified.** V+'s `FindNearbyChests` skips
+        `m_lastRevision == uint.MaxValue`. Vanilla sets that field only inside `Container.Load`,
+        which our patch replaces, so the value never changed. This breaks craft-from-chest and
+        stations in single-player and on servers, 0.2.1 included. The fix sets the revision in
+        our Load patch: always on a client, and only once contents are loaded on the authority.
+      - **Bug 2: consolidation changes item identity. Not fixed.** `StackConsolidation.StackKey`
+        is `m_shared.m_name|quality|variant|worldLevel` and has no prefab, so different prefabs
+        that share a shared name merge into whichever stack absorbs them. Item totals are
+        conserved; identities are not. Seen when V+ `itemStackMultiplier = 900` on the server let
+        the filler stores merge. In store `2ce7dd26`, 6 of 707 prefabs changed:
+        - `FishRaw` → `FishAnglerRaw`
+        - `TrophyDraugrFem` → `TrophyDraugr`
+        - `TrophyFrostTroll` → `TrophyForestTroll`
+
+        These are real items. Vanilla's own `AddItem` stacks on the same key, but consolidation
+        sweeps the whole chest unprompted. Proposed: add the prefab name to the key
+        (`ItemAdapter.ItemId`), for both `Collapse` and `ChestSession.Deposit`. Chests already
+        merged stay merged.
 - [ ] **B10. `/code-review` the branch.** Storage and network code; every round so far has
       found real defects that self-review did not.
 
