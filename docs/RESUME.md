@@ -188,6 +188,23 @@ has to be read with that in mind.
           - **Travel for testing.** Vanilla `goto`, `debugmode` and `fly` are all cheat-only and
             not remote commands, so they cannot run from a dedicated server's client. Use a
             portal pair, or consider a testing-gated `bottomless goto`.
+      - **B9 run 5 (2026-09-14): the self-scrolling cause found, fixed in `51c9f95`.**
+        - The ungated diagnostics (`8af95d1`) showed every stray step came from
+          `ChestView.Scroll < ChestScroller.Update`. The scroller moved a row for any
+          `Input.mouseScrollDelta` above 0.01, wherever the pointer was, so a smooth or hi-res
+          wheel or touchpad crept the window while the player hovered items. The grid's
+          `ScrollRect` also stayed live and slid its content: the half-row view, the drop slot
+          moving, and vanilla gamepad ensure-visible.
+        - Fix: wheel deltas accumulate into whole notches and only count with the pointer over
+          the chest panel. The `ScrollRect` is locked vertically while open and restored on
+          close. **Not yet verified in game.**
+        - **Controller findings:** left-stick grid navigation works. The right stick does nothing
+          and should scroll; being added. Search and Take All answer the same gamepad button,
+          and a temporary `[pad]` hint dump (`3096cb7`) will name the bindings. Dropped items do
+          not fly forward even with `OnPlayerDrop` and the velocity set (`cb260ee`); the user
+          says a plain drop is fine, since vanilla looks similar.
+        - **Temporary diagnostics to remove before release:** `ScrollTo` caller logging,
+          `ChestScrollbarBridge.WatchContent`, and the `[pad]` dump in `SearchBox.Build`.
       - **Still to run** after deploying `390697b`: steps 2–7 of the B9 list (build menu,
         crafting open and closed, kiln pull and coal deposit, Place Stacks, a server-owned kiln
         near spawn, then save).
