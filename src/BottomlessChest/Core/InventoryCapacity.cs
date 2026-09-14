@@ -34,7 +34,7 @@ namespace BottomlessChest.Core
 
         internal static void Register(Inventory inventory)
         {
-            if (inventory != null && Unbounded.Add(inventory))
+            if (inventory != null && Unbounded.Add(inventory) && Storage.SidecarStore.IsServerAuthority)
             {
                 Apply(inventory);
             }
@@ -161,7 +161,14 @@ namespace BottomlessChest.Core
             // Runs on every inventory mutation in the game, so it must stay a hash lookup.
             private static void Postfix(Inventory __instance)
             {
-                if (!Unbounded.Contains(__instance) || Suspended)
+                // Only where the inventory is the real chest. On a client it is the page on
+                // screen, which ChestView sizes to exactly the window. ValheimPlus calls
+                // Inventory.Changed after every station deposit, and resizing the page for its
+                // items plus the parking reserve made it twice the window's height: vanilla's
+                // grid then laid out extra empty rows and parked the view on the bottom of them,
+                // once a second while a kiln ran. It stays registered, because
+                // ClientDepositGuard recognises chest pages by it.
+                if (!Unbounded.Contains(__instance) || Suspended || !Storage.SidecarStore.IsServerAuthority)
                 {
                     return;
                 }
