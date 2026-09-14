@@ -37,6 +37,10 @@ stored file.
 
 ### Other
 
+- Rebinding a chest with `bottomless rebind` from another player's game, while the host also
+  had that chest loaded, left the host holding the old contents under the new store id. The
+  host's next change to the chest then saved those old contents over the store being
+  recovered. The host now notices the rebind and reloads.
 - New console commands for looking into storage: `bottomless probe` shows each copy of the
   nearest chest side by side, and `bottomless trace on [prefab]` logs every load and save.
   `session-put`, `session-hold` and `session-release` reproduce a remote player's side of a
