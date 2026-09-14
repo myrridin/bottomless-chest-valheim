@@ -120,6 +120,24 @@ namespace BottomlessChest.Tests
         }
 
         [Fact]
+        public void TakingWhileWalkingTheEntriesDoesNotBreakTheWalk()
+        {
+            // The ValheimPlus removal prefix walks the entries to match a name, then takes as it
+            // goes. A take that invalidated the walk threw after the server had already been
+            // told to remove - wood left the chest and the kiln was told it got none.
+            var index = ChestIndex.From(1, 1, new[] { Item("Wood", 10), Item("Stone", 5), Item("Resin", 3) });
+
+            var taken = 0;
+            foreach (var entry in index.Entries)
+            {
+                taken += index.Take(entry.ItemId, -1, 2);
+            }
+
+            Assert.Equal(6, taken);
+            Assert.Equal(8, index.CountOf("Wood", -1));
+        }
+
+        [Fact]
         public void TakingZeroOrLessTakesNothing()
         {
             var index = ChestIndex.From(1, 1, new[] { Item("Wood", 10) });

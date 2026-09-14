@@ -34,9 +34,14 @@ namespace BottomlessChest.Logic
     /// </remarks>
     public sealed class ChestIndex
     {
-        private readonly List<IndexEntry> _entries;
+        /// <remarks>
+        /// An array, not a list. <see cref="Take"/> rewrites entries in place, and a list
+        /// invalidates every walk over it when an element is replaced - which is exactly what
+        /// the ValheimPlus removal prefix does while it walks the entries to match a name.
+        /// </remarks>
+        private readonly IndexEntry[] _entries;
 
-        private ChestIndex(long generation, long version, List<IndexEntry> entries)
+        private ChestIndex(long generation, long version, IndexEntry[] entries)
         {
             Generation = generation;
             Version = version;
@@ -86,7 +91,7 @@ namespace BottomlessChest.Logic
                 }
             }
 
-            return new ChestIndex(generation, version, entries);
+            return new ChestIndex(generation, version, entries.ToArray());
         }
 
         /// <summary>How much of an item is held. A negative quality means any quality.</summary>
@@ -126,7 +131,7 @@ namespace BottomlessChest.Logic
             }
 
             var taken = 0;
-            for (var i = 0; i < _entries.Count && taken < amount; i++)
+            for (var i = 0; i < _entries.Length && taken < amount; i++)
             {
                 var entry = _entries[i];
                 if (entry.ItemId != itemId || (quality >= 0 && entry.Quality != quality))
