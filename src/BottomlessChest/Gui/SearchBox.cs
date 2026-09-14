@@ -219,6 +219,15 @@ namespace BottomlessChest.Gui
                 {
                     UpdateStatus();
                 }
+
+                // The View/Back button focuses the search on a gamepad. The stick clicks belong
+                // to Take All and Place Stacks, and the rest of the pad is navigation, item
+                // actions or closing the window; View is not used by the inventory screen.
+                if (_input != null && ChestView.IsOpen && ZInput.IsGamepadActive() && ZInput.GetButtonDown("JoyBack"))
+                {
+                    ZInput.ResetButtonStatus("JoyBack");
+                    _input.Focus();
+                }
             }
         }
 

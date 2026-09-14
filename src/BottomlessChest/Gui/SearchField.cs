@@ -140,6 +140,19 @@ namespace BottomlessChest.Gui
                 navigation.mode = UnityEngine.UI.Navigation.Mode.None;
                 field.navigation = navigation;
 
+                // The build panel's field answers to the left stick click, which the container
+                // window already gives to Take All, so one press did both. Its gamepad binding
+                // and hint are dropped here; SearchBox binds its own key.
+                foreach (var pad in clone.GetComponentsInChildren<UIGamePad>(true))
+                {
+                    if (pad.m_hint != null)
+                    {
+                        pad.m_hint.SetActive(false);
+                    }
+
+                    UnityEngine.Object.Destroy(pad);
+                }
+
                 SetPlaceholder(field, "$bottomless_search");
 
                 return new SearchField(clone, field, null);
