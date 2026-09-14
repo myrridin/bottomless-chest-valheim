@@ -54,5 +54,11 @@ namespace BottomlessChest.Net
 
         /// <summary>Client reports what another mod consumed against the index.</summary>
         TakeByName = 15,
+
+        /// <summary>Client hands over an item another mod put into the chest.</summary>
+        DepositForward = 16,
+
+        /// <summary>Server could not keep a forwarded item and sends it back to be dropped.</summary>
+        DepositRefused = 17,
     }
 }

@@ -259,7 +259,14 @@ namespace BottomlessChest.Core
         /// </summary>
         private void Update()
         {
-            if (Plugin.Degraded || _container == null || !ContentsWatch.Enabled)
+            if (Plugin.Degraded || _container == null)
+            {
+                return;
+            }
+
+            RefreshIndex();
+
+            if (!ContentsWatch.Enabled)
             {
                 return;
             }
@@ -275,8 +282,61 @@ namespace BottomlessChest.Core
             _watch.Poll(_container.m_inventory, label, open);
         }
 
+        /// <summary>When this client next asks the server for this chest's summary.</summary>
+        private float _nextIndexAt = -1f;
+
+        /// <summary>The store last asked about, so the summary can be forgotten after the ZDO is gone.</summary>
+        private string _indexedStoreId;
+
+        /// <summary>
+        /// Keeps this client's summary of the chest current, so another mod can query it.
+        /// </summary>
+        /// <remarks>
+        /// Every chest instantiated here, not just those near the player. ValheimPlus stations
+        /// run on whichever peer owns them and look for chests up to 50 m from the station,
+        /// which can be well past 50 m from this player - but anything they can find is
+        /// instantiated on this client, so that set is exactly right. The server does not
+        /// answer when the chest has not changed, so asking costs one small message.
+        /// </remarks>
+        private void RefreshIndex()
+        {
+            if (SidecarStore.IsServerAuthority || !Net.ChestRpc.Ready)
+            {
+                return;
+            }
+
+            var now = UnityEngine.Time.unscaledTime;
+            if (_nextIndexAt < 0f)
+            {
+                // Spread across the second, so a base full of chests does not ask on one frame.
+                _nextIndexAt = now + UnityEngine.Random.value;
+                return;
+            }
+
+            if (now < _nextIndexAt)
+            {
+                return;
+            }
+
+            _nextIndexAt = now + 1f;
+
+            var storeId = CurrentStoreId;
+            if (string.IsNullOrEmpty(storeId))
+            {
+                return;
+            }
+
+            _indexedStoreId = storeId;
+            Net.ChestRpc.RequestIndex(storeId);
+        }
+
         private void OnDestroy()
         {
+            if (!string.IsNullOrEmpty(_indexedStoreId))
+            {
+                Net.ChestRpc.Indexes.Forget(_indexedStoreId);
+                Compat.ChestQueryPatches.Forget(_indexedStoreId);
+            }
 
             if (_container != null)
             {

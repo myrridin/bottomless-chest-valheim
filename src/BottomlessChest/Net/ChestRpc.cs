@@ -36,6 +36,18 @@ namespace BottomlessChest.Net
         internal static readonly Logic.ChestIndexCache Indexes = new Logic.ChestIndexCache();
 
         /// <summary>
+        /// Hands the server an item another mod put into a chest this client only pages.
+        /// </summary>
+        internal static void DepositForward(string storeId, byte[] itemBytes)
+        {
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.DepositForward);
+            package.Write(storeId);
+            package.Write(itemBytes);
+            ToServer(package);
+        }
+
+        /// <summary>
         /// Tells the server another mod consumed from a chest, against the index version it
         /// acted on.
         /// </summary>
@@ -531,6 +543,42 @@ namespace BottomlessChest.Net
                     break;
                 }
 
+                case ChestMessage.DepositForward:
+                {
+                    // Not Put. Put needs a session somebody already opened, so a closed chest
+                    // would drop the message and the item with it; and its Accepted reply makes
+                    // the client delete the player's own in-flight deposit.
+                    var itemBytes = package.ReadByteArray();
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null
+                        || RefusesToChange(session, sender, "a deposit from another mod")
+                        || !TryDeserialize(itemBytes, out var deposited)
+                        || deposited.Count == 0)
+                    {
+                        // The sender already told the other mod the item went in. Sending it back
+                        // is the only way it still ends up somewhere a player can pick it up.
+                        Plugin.Log.LogWarning(
+                            $"Could not keep an item forwarded into chest {storeId}; sending it back " +
+                            "to be dropped on the ground.");
+
+                        var refused = new ZPackage();
+                        refused.Write((int)ChestMessage.DepositRefused);
+                        refused.Write(storeId);
+                        refused.Write(itemBytes);
+                        _rpc.SendPackage(sender, refused);
+                        break;
+                    }
+
+                    foreach (var item in deposited)
+                    {
+                        session.Deposit(item);
+                    }
+
+                    ChestSessions.Persist(session);
+                    break;
+                }
+
                 case ChestMessage.TakeByName:
                 {
                     // Read, and deliberately not used to refuse: the client has already
@@ -576,6 +624,47 @@ namespace BottomlessChest.Net
             counts.Write(session.TotalWeight);
 
             _rpc.SendPackage(peer, counts);
+        }
+
+        /// <summary>Drops items on the ground at a chest, or at the player if the chest is gone.</summary>
+        private static void DropNear(string storeId, List<ItemDrop.ItemData> items)
+        {
+            if (items == null || items.Count == 0)
+            {
+                return;
+            }
+
+            UnityEngine.Vector3? at = null;
+            foreach (var chest in BottomlessContainer.Loaded)
+            {
+                if (chest != null && chest.CurrentStoreId == storeId)
+                {
+                    at = chest.transform.position;
+                    break;
+                }
+            }
+
+            if (at == null && Player.m_localPlayer != null)
+            {
+                at = Player.m_localPlayer.transform.position;
+            }
+
+            if (at == null)
+            {
+                Plugin.Log.LogError(
+                    $"Nowhere to drop {items.Count} item(s) sent back from chest {storeId}; they are lost.");
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                if (item?.m_dropPrefab == null)
+                {
+                    continue;
+                }
+
+                ItemDrop.DropItem(item, item.m_stack, at.Value + UnityEngine.Vector3.up, UnityEngine.Quaternion.identity);
+            }
         }
 
         /// <summary>Sends a chest's totals per item type, for another mod to query.</summary>
@@ -652,7 +741,7 @@ namespace BottomlessChest.Net
             return true;
         }
 
-        private static byte[] Serialize(List<ItemDrop.ItemData> items)
+        internal static byte[] Serialize(List<ItemDrop.ItemData> items)
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, Filter.ChestView.VisibleRows);
             scratch.m_inventory.AddRange(items);
@@ -783,6 +872,21 @@ namespace BottomlessChest.Net
                 case ChestMessage.Accepted:
                     Filter.ChestView.ApplyAccepted();
                     break;
+
+                case ChestMessage.DepositRefused:
+                {
+                    // Deserialized copies, so nothing here is still referenced by the mod that
+                    // made them. Whatever does not read is lost, and says so.
+                    if (!TryDeserialize(package.ReadByteArray(), out var items))
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not fully read the items chest {storeId} sent back; " +
+                            $"{items.Count} recovered.");
+                    }
+
+                    DropNear(storeId, items);
+                    break;
+                }
 
                 case ChestMessage.IndexResult:
                 {
