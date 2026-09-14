@@ -90,6 +90,31 @@ has to be read with that in mind.
       - Line 33: remove "Everyone on a server needs the mod" — standard for any mod.
       - The 0.2.0 changelog calls a million "the ceiling". Leave that entry alone; restate the
         limit in the 0.3.0 entry so README and changelog agree.
+- [ ] **C18. Hide the "F" on the search box.** The field is cloned from `BuildUi.m_searchField`,
+      and the clone carries the build panel's `UIGamePad` (key F / `JoyLStick`, `v1.0.cs:40171`
+      and class at `62225`). Its `m_hint` shows whenever `ZInput.IsGamepadActive()`, hence
+      "sometimes"; the key never focuses our clone. User: don't display it, clicking is fine.
+      Fix in `SearchField.TryCloneVanilla`: deactivate every `UIGamePad.m_hint` in the clone
+      and destroy the `UIGamePad` components. Found in the 0.2.1 default-log run.
+- [ ] **C19. Place Stacks is very slow on a big chest** (user: "super slow", 9,971 stacks,
+      single-player). Present since 0.1.0 — not a 0.2.1 regression. Two costs per item moved,
+      both O(chest):
+      - `InventoryCapacity.TopFirstPatch` forces `TopFirst = true`, so vanilla
+        `FindEmptySlot` scans rows from the top of a full grid calling `GetItemAt` (itself a
+        walk of `m_inventory`) per slot — quadratic, ~10⁸ checks for each item that needs a
+        new slot. `AddItem` also calls `FindFreeStackItem` once per *unit* of the stack.
+      - `AddItem` ends in `Changed` → `m_onChanged` → `Container.OnContainerChanged` → `Save`
+        → `SaveToStore`: a full serialize of the chest per item.
+      V+ `[AutoStack] enabled = true`, range 50, repeats Place Stacks on every nearby chest,
+      so other bottomless chests pay the same. Proposed: on the server authority, a prefix on
+      `Inventory.StackAll` for unbounded inventories that deposits through a key → open-stack
+      index (as `ChestSession.Deposit` does) and fires `Changed` once; and an O(n)
+      `FindEmptySlot` for unbounded inventories (one occupied-set build per call), which also
+      speeds ctrl-click and V+ stations. Measure before and after. Storage path → `/code-review`.
+- **Decided: Place Stacks keeps taking from the hotbar.** Vanilla skips only equipped items;
+  the user chose to keep vanilla behaviour for bottomless chests too (2026-09-14).
+- **Not ours: the tall inventory window.** V+ `[Inventory] playerInventoryRows = 8` in the
+  migrated config (vanilla is 4). Nothing to change in the mod.
 
 ### D. Carried forward from 0.2.0
 
