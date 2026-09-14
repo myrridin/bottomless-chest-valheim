@@ -138,14 +138,31 @@ namespace BottomlessChest.Gui
 
             _wasFocused = Focused;
 
-            if (Focused == _blocking)
+            // Input is blocked so typed letters do not also walk the player, which only matters
+            // at a keyboard. Blocking silences ZInput, which is where vanilla reads the gamepad's
+            // B to close the window, so a gamepad-focused search left no way out. Typing on a
+            // keyboard makes the gamepad inactive again, and the block returns.
+            var shouldBlock = Focused && !GamepadActive();
+            if (shouldBlock == _blocking)
             {
                 return;
             }
 
-            _blocking = Focused;
+            _blocking = shouldBlock;
             GUIManager.BlockInput(_blocking);
             Plugin.Log.LogDebug($"Search box focus: {_blocking}");
+        }
+
+        private static bool GamepadActive()
+        {
+            try
+            {
+                return ZInput.instance != null && ZInput.IsGamepadActive();
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>

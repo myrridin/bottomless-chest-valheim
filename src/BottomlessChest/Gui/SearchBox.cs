@@ -160,7 +160,13 @@ namespace BottomlessChest.Gui
                 _input.OnChanged(OnChanged);
                 var guard = _field.AddComponent<SearchFocusGuard>();
                 guard.Bind(_input);
-                guard.TakeFocus();
+
+                // Not on a gamepad: the player starts on the grid, and View/Back focuses the
+                // search. Taking focus on open blocked input, so B could not close the window.
+                if (!ZInput.IsGamepadActive())
+                {
+                    guard.TakeFocus();
+                }
                 _field.AddComponent<ChestScroller>();
                 _field.AddComponent<ChestScrollbarBridge>().Bind(gui.m_containerGrid);
 
