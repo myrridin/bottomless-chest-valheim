@@ -253,6 +253,21 @@ has to be read with that in mind.
 
       Re-review after B9's fixes.
 
+      Round 2 (2026-09-14, after B9 and C19; `release-0.3.0` vs `main`, 58 commits) found one,
+      Low, fixed:
+      - A V+ station on the chest's authority (host, or dedicated server near the world's
+        centre) saved through `SaveToStore` → `OnExternalChange` → `Touch`, bumping `Version`
+        each tick: a remote viewer's takes were refused as stale while it ran, and the
+        open-stack index was rebuilt each tick. Now `OnExternalChange` compares a
+        `ReferenceFingerprint` of the stacks held; unchanged means count-only (`TouchCounts`).
+        **Needs an in-game check:** a host- or server-run station pulling from a chest while a
+        remote player takes from it — fold into the V+ station test (the near-spawn station).
+      Ruled out by the reviewer, recorded so they are not re-chased: drag-out ghost items,
+      `Granted`/`Take` wire order, Place Stacks running out of free slots mid-run (the window
+      reserve covers a full player inventory), the `AddItem` rewrite vs vanilla, the auto-stack
+      sweep double-offering, duplicated station deposits, two copies via `LoadFromStore`
+      adopting sessions, and the accepted index race (an occasional unpaid craft).
+
 ### C. Requested by the user
 
 - [x] **C11. Default build cost → the wooden chest's.** Done in `39457f6`: `Wood:10`, read
