@@ -36,7 +36,17 @@ namespace BottomlessChest.Core
 
         internal string StoreId { get; }
 
-        internal Inventory Inventory { get; }
+        /// <summary>
+        /// The contents. On the server authority this is the loaded chest's own inventory
+        /// whenever the chest is loaded in the world - never a second copy of it.
+        /// </summary>
+        /// <remarks>
+        /// Two copies of one chest in memory, each writing the whole store entry, is how a
+        /// host's change came to erase a remote player's: the host's copy loaded once, a
+        /// session changed the chest, and the host's next change saved its stale copy over
+        /// the store. One object cannot disagree with itself.
+        /// </remarks>
+        internal Inventory Inventory { get; private set; }
 
         /// <summary>
         /// Set when the store did not load completely. The session may be read, never written.
@@ -345,6 +355,88 @@ namespace BottomlessChest.Core
             _openStacks.Clear();
             _consolidated = false;
             Touch();
+        }
+
+        /// <summary>
+        /// Switches to the loaded chest's inventory, which a chest that loads while this
+        /// session is open fills with this session's items.
+        /// </summary>
+        /// <remarks>
+        /// The chest copies the items across in the same order, so every page a client holds
+        /// still names the same items and nothing needs renumbering. If the contents somehow
+        /// differ, this falls back to treating it as an outside change - a bumped version and
+        /// a rebuilt index - rather than trusting indices that may have moved.
+        /// </remarks>
+        internal void AdoptInventory(Inventory shared)
+        {
+            if (shared == null || ReferenceEquals(shared, Inventory))
+            {
+                return;
+            }
+
+            var unchanged = SameItemsInOrder(Inventory, shared);
+            Inventory = shared;
+            _weightDirty = true;
+
+            if (!unchanged)
+            {
+                OnExternalChange();
+            }
+        }
+
+        /// <summary>
+        /// Brings the session up to date after something other than itself changed the
+        /// contents - the host, a ValheimPlus station, a console command.
+        /// </summary>
+        /// <remarks>
+        /// Two caches go stale. The open-stack index may point at a stack that was just
+        /// removed, and a deposit merged into that ghost lands nowhere - the same failure
+        /// emptying a chest once caused - so it is rebuilt, indexing only, never merging.
+        /// And the order may have shifted under a page a client is holding, so the version is
+        /// bumped: that client's next take is refused as stale and re-paged, rather than
+        /// taking whatever now sits at the index it quoted.
+        /// </remarks>
+        internal void OnExternalChange()
+        {
+            _openStacks.Clear();
+
+            foreach (var item in Inventory.m_inventory)
+            {
+                var max = item.m_shared.m_maxStackSize;
+                if (max <= 1 || item.m_stack >= max)
+                {
+                    continue;
+                }
+
+                var key = StackKey(item);
+                if (!_openStacks.ContainsKey(key))
+                {
+                    _openStacks[key] = item;
+                }
+            }
+
+            _consolidated = true;
+            Touch();
+        }
+
+        private static bool SameItemsInOrder(Inventory a, Inventory b)
+        {
+            var left = a.m_inventory;
+            var right = b.m_inventory;
+            if (left.Count != right.Count)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < left.Count; i++)
+            {
+                if (!ReferenceEquals(left[i], right[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>Drops a stack from the open-stack index if it was the one held there.</summary>

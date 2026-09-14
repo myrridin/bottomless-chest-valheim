@@ -17,8 +17,8 @@ namespace BottomlessChest.Commands
         public override string Name => "bottomless";
 
         public override string Help =>
-            "bottomless list | here | probe | trace on [prefab] | trace off | rebind <storeId> | fill <stacks> [prefab] | empty | " +
-            "session-put [prefab]  (fill, empty and session-put are off by default; see the Testing " +
+            "bottomless list | here | probe | trace on [prefab] | trace off | rebind <storeId> [zdo-only] | fill <stacks> [prefab] | empty | " +
+            "session-put [prefab] | session-hold | session-release  (fill, empty and the session commands are off by default; see the Testing " +
             "section of the config)";
 
         public override void Run(string[] args)
@@ -58,6 +58,15 @@ namespace BottomlessChest.Commands
                     if (RequireCheats())
                     {
                         SessionPut(args);
+                    }
+
+                    break;
+
+                case "session-hold":
+                case "session-release":
+                    if (RequireCheats())
+                    {
+                        SessionHold(args[0].ToLowerInvariant() == "session-hold");
                     }
 
                     break;
@@ -234,6 +243,11 @@ namespace BottomlessChest.Commands
             }
 
             var storeId = chest.CurrentStoreId;
+
+            // A session already open belongs to someone - a player with the chest open, or
+            // session-hold - and releasing it would leave that player's next take or deposit
+            // with nothing to answer it. Only a session opened here is released here.
+            var alreadyOpen = ChestSessions.TryGet(storeId, out _);
             var session = ChestSessions.Acquire(storeId);
             if (session == null)
             {
@@ -245,12 +259,90 @@ namespace BottomlessChest.Commands
             session.Deposit(items[0]);
             ChestSessions.Persist(session);
             var after = session.TotalCount;
-            ChestSessions.Release(storeId);
+
+            if (!alreadyOpen)
+            {
+                ChestSessions.Release(storeId);
+            }
 
             Console.instance.Print($"Deposited one {prefab} stack through a session.");
             Console.instance.Print(
                 $"  session went {before} -> {after} stacks" +
                 (after == before ? " - it merged into an existing stack; use an item the chest does not hold" : string.Empty));
+            Probe();
+        }
+
+        /// <summary>
+        /// Opens or releases a session on the nearest chest and leaves it that way.
+        /// </summary>
+        /// <remarks>
+        /// Holding one open is what a remote player with the chest open looks like from the
+        /// host. It lets the reverse of session-put be tested on one machine: change the chest
+        /// on the host while the session is held, then release it and check the change
+        /// survived the session writing the chest back.
+        /// </remarks>
+        // Sessions opened by session-hold, the only ones session-release may close. The session
+        // itself is kept, not just its id: idle cleanup can release a held session at a world
+        // save, and a real player's session opened afterwards has the same id.
+        private static readonly Dictionary<string, ChestSession> HeldByCommand =
+            new Dictionary<string, ChestSession>(System.StringComparer.Ordinal);
+
+        private static void SessionHold(bool hold)
+        {
+            var chest = Nearest();
+            if (chest == null)
+            {
+                Console.instance.Print($"No bottomless chest within {SearchRadius}m.");
+                return;
+            }
+
+            if (!SidecarStore.IsServerAuthority)
+            {
+                Console.instance.Print("Session commands only run on the server authority.");
+                return;
+            }
+
+            var storeId = chest.CurrentStoreId;
+            if (hold)
+            {
+                if (ChestSessions.TryGet(storeId, out _))
+                {
+                    Report("A session is already open on this chest; leaving it to whoever opened it.");
+                }
+                else
+                {
+                    var opened = ChestSessions.Acquire(storeId);
+                    if (opened == null)
+                    {
+                        Report("Could not open a session on this chest; the store may not be ready yet.");
+                    }
+                    else
+                    {
+                        HeldByCommand[storeId] = opened;
+                        Report("Holding a session open on this chest, as a remote player with it open would.");
+                    }
+                }
+            }
+            else
+            {
+                var key = storeId ?? string.Empty;
+                var isOurs = HeldByCommand.TryGetValue(key, out var held)
+                    && ChestSessions.TryGet(key, out var current)
+                    && ReferenceEquals(held, current);
+                HeldByCommand.Remove(key);
+
+                if (!isOurs)
+                {
+                    // Releasing a real player's session would strand their next take or deposit.
+                    Report("No session on this chest is still held by session-hold, so nothing was released.");
+                }
+                else
+                {
+                    ChestSessions.Release(storeId);
+                    Report("Released the session on this chest.");
+                }
+            }
+
             Probe();
         }
 
@@ -273,6 +365,22 @@ namespace BottomlessChest.Commands
             if (!SidecarStore.Instance.TryGet(storeId, out _))
             {
                 Console.instance.Print($"No store named '{storeId}'. Run 'bottomless list' to see them.");
+                return;
+            }
+
+            // Changes the id without reloading, which is how a rebind made on another machine
+            // reaches the one holding the chest. Lets that path be tested without a second player.
+            if (args.Count > 2 && args[2].ToLowerInvariant() == "zdo-only")
+            {
+                if (!RequireCheats())
+                {
+                    return;
+                }
+
+                var was = chest.CurrentStoreId;
+                Report(chest.SetStoreIdOnly(storeId)
+                    ? $"Store id changed from {was} to {storeId} on the ZDO only, as a rebind from another machine arrives."
+                    : "Could not change the store id - the chest is not owned by this client.");
                 return;
             }
 
