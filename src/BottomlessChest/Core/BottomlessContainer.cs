@@ -454,6 +454,23 @@ namespace BottomlessChest.Core
                     return;
                 }
 
+                if (session.ReadOnly)
+                {
+                    // The session gave up on these contents - consolidation already rewrote
+                    // the list it shares with us before finding the count wrong. Same door as
+                    // a short load: this chest stops saving until it is loaded again.
+                    _loadWasPartial = true;
+                    if (!_warnedAboutUnloadedSave)
+                    {
+                        _warnedAboutUnloadedSave = true;
+                        Plugin.Log.LogError(
+                            $"Refusing to save chest {storeId}: its session is read-only, so the " +
+                            "contents in memory cannot be trusted. The stored copy is left untouched.");
+                    }
+
+                    return;
+                }
+
                 session.OnExternalChange();
             }
 

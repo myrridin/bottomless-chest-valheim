@@ -281,8 +281,11 @@ namespace BottomlessChest.Commands
         /// on the host while the session is held, then release it and check the change
         /// survived the session writing the chest back.
         /// </remarks>
-        /// <summary>Sessions opened by session-hold, the only ones session-release may close.</summary>
-        private static readonly HashSet<string> HeldByCommand = new HashSet<string>(System.StringComparer.Ordinal);
+        // Sessions opened by session-hold, the only ones session-release may close. The session
+        // itself is kept, not just its id: idle cleanup can release a held session at a world
+        // save, and a real player's session opened afterwards has the same id.
+        private static readonly Dictionary<string, ChestSession> HeldByCommand =
+            new Dictionary<string, ChestSession>(System.StringComparer.Ordinal);
 
         private static void SessionHold(bool hold)
         {
@@ -306,25 +309,38 @@ namespace BottomlessChest.Commands
                 {
                     Report("A session is already open on this chest; leaving it to whoever opened it.");
                 }
-                else if (ChestSessions.Acquire(storeId) == null)
-                {
-                    Report("Could not open a session on this chest; the store may not be ready yet.");
-                }
                 else
                 {
-                    HeldByCommand.Add(storeId);
-                    Report("Holding a session open on this chest, as a remote player with it open would.");
+                    var opened = ChestSessions.Acquire(storeId);
+                    if (opened == null)
+                    {
+                        Report("Could not open a session on this chest; the store may not be ready yet.");
+                    }
+                    else
+                    {
+                        HeldByCommand[storeId] = opened;
+                        Report("Holding a session open on this chest, as a remote player with it open would.");
+                    }
                 }
-            }
-            else if (!HeldByCommand.Remove(storeId ?? string.Empty))
-            {
-                // Releasing a real player's session would strand their next take or deposit.
-                Report("No session on this chest was opened by session-hold, so nothing was released.");
             }
             else
             {
-                ChestSessions.Release(storeId);
-                Report("Released the session on this chest.");
+                var key = storeId ?? string.Empty;
+                var isOurs = HeldByCommand.TryGetValue(key, out var held)
+                    && ChestSessions.TryGet(key, out var current)
+                    && ReferenceEquals(held, current);
+                HeldByCommand.Remove(key);
+
+                if (!isOurs)
+                {
+                    // Releasing a real player's session would strand their next take or deposit.
+                    Report("No session on this chest is still held by session-hold, so nothing was released.");
+                }
+                else
+                {
+                    ChestSessions.Release(storeId);
+                    Report("Released the session on this chest.");
+                }
             }
 
             Probe();
