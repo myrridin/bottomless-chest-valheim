@@ -95,6 +95,12 @@ namespace BottomlessChest.Core
 
         internal bool LoadWasPartial => _loadWasPartial;
 
+        /// <summary>
+        /// Stops this chest saving until it is loaded again, because something sharing its
+        /// inventory found the contents in memory can no longer be trusted.
+        /// </summary>
+        internal void MarkContentsUntrusted() => _loadWasPartial = true;
+
         /// <summary>Sends any debounced snapshot immediately, e.g. when the chest is closed.</summary>
         internal static void FlushAllPending()
         {

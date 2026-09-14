@@ -39,6 +39,7 @@ namespace BottomlessChest.Core
             Inventory inventory;
             var partial = false;
             var shared = false;
+            BottomlessContainer sharedWith = null;
 
             // On the server authority the chest may already be loaded in the world - always on
             // a player-hosted server near the host, and on a dedicated server near world origin.
@@ -49,6 +50,7 @@ namespace BottomlessChest.Core
                 inventory = loaded.Inventory;
                 partial = loaded.LoadWasPartial;
                 shared = true;
+                sharedWith = loaded;
             }
             else
             {
@@ -98,6 +100,14 @@ namespace BottomlessChest.Core
             if (!session.ReadOnly && session.Consolidate())
             {
                 Persist(session);
+            }
+
+            // A failed consolidation has already rewritten the list before finding the count
+            // wrong, and a shared list is the chest's too. Marked now rather than when the
+            // chest next saves: by then this session may be released and leave no trace.
+            if (shared && session.ReadOnly)
+            {
+                sharedWith.MarkContentsUntrusted();
             }
 
             Plugin.Log.LogDebug($"Opened session for chest {storeId} with {session.TotalCount} stacks.");
