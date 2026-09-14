@@ -444,6 +444,13 @@ namespace BottomlessChest.Core
 
             StoreTrace.Container("save requested", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
 
+            if (!SidecarStore.IsServerAuthority)
+            {
+                // Saving here would write the handful of items currently paged in over the
+                // whole chest. Mutations travel as explicit operations instead.
+                return;
+            }
+
             // A partial load is more dangerous than a failed one: the chest looks populated,
             // just smaller, so nothing seems wrong until the truncated copy is written back
             // over the real contents.
@@ -474,13 +481,6 @@ namespace BottomlessChest.Core
                         "The stored copy is intact and left untouched.");
                 }
 
-                return;
-            }
-
-            if (!SidecarStore.IsServerAuthority)
-            {
-                // Saving here would write the handful of items currently paged in over the
-                // whole chest. Mutations travel as explicit operations instead.
                 return;
             }
 
