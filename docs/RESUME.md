@@ -31,6 +31,7 @@ has to be read with that in mind.
 ### A. Investigate first — these decide the shape of everything in B
 
 - [ ] **A1. Two uncoordinated copies of a chest on the server — reproduce or rule out.**
+      **Confirmed, fixed (`035ca9e` on `hotfix-0.2.1`) and verified; releasing as 0.2.1.**
       Possible data loss; details in *The two-copies question* below. If it is real it
       already affects 0.2.0 users, so it is fixed and released before anything else.
 - [ ] **A2. Who runs a V+ station.** 10.1.2 gates stations on `m_nview.IsOwner()` and finds
@@ -274,8 +275,35 @@ drag, shift-click, Take All — when verifying the fix.
 Backups: `backup-2026-09-14-pre-A1-CasualSolo-stores/` (before run 1) and
 `backup-2026-09-14-A1-after-run1-CasualSolo-stores/`.
 
-**Next: the fix needs a decision** — see the conversation of 2026-09-14; options are one shared
-inventory per chest on the authority, or refreshing the other copy at every store write.
+### A1 fix — one copy per chest, verified in run 3
+
+The user chose **one shared copy** over refreshing the other copy at every write. Commit
+`035ca9e` on `hotfix-0.2.1`, branched from `main`, with the diagnostics cherry-picked onto it.
+
+- A session opened on a loaded chest uses that chest's inventory.
+- A chest that loads while a session is open takes the session's items — the same objects,
+  in the same order, so client page indices stay valid — and the session adopts it.
+- Every change made outside a session reaches the store through `SaveToStore`, which now
+  tells an open session: its open-stack index is rebuilt and its version bumped.
+- Session writes regrow the grid, since they append without `AddItem`.
+- A session found holding a separate copy makes `SaveToStore` log and refuse. Should be
+  unreachable.
+
+**Run 3**, chest `28c36484…` from 9,972 stacks and 15 swords:
+
+- Forward: the session opened "sharing the loaded chest's inventory", with the same object id
+  as the container (`inv@316be560`). After `session-put`, a ctrl-click take left the store at
+  9,972 **with 16 swords**, where run 2 lost the sword at this step.
+- Reverse: with `session-hold` open, a drag take went to 9,971 and the session's version
+  v0 → v1. `session-release` then wrote 9,971, so the take did not revert.
+- File after quitting: 9,971 stacks, `SwordIron` 16. The other three stores were unchanged in
+  size, and the log had no refusals or errors.
+
+Backups: `backup-2026-09-14-A1-after-run2-CasualSolo-stores/` is the state before the fix ran.
+
+**Next:** `/code-review` on `hotfix-0.2.1`, then the release gate, package, tag and upload
+of 0.2.1. After that, merge `main` into `release-0.3.0` and continue at A2/A3 (both largely
+answered already) and B.
 
 ---
 
