@@ -122,7 +122,8 @@ namespace BottomlessChest.Gui
         /// </remarks>
         private void WatchContent()
         {
-            if (!Core.DebugLogging.Enabled || _detachedFrom == null || _detachedFrom.content == null)
+            // TEMPORARY B9 diagnostic, deliberately ungated - see ChestView.ScrollTo. Remove before release.
+            if (_detachedFrom == null || _detachedFrom.content == null)
             {
                 return;
             }

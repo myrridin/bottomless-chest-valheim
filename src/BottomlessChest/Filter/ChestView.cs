@@ -344,9 +344,10 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
-            if (Core.DebugLogging.Enabled)
+            // TEMPORARY B9 diagnostic, deliberately ungated: a remote chest scrolls itself with
+            // nobody touching it, and the Debug gate kept this silent on the machine showing it.
+            // Remove before release.
             {
-                // B9 diagnostic: a remote chest scrolled itself with nobody touching it.
                 Plugin.Log.LogDebug($"ScrollTo row {row} (from {_scrollRow}), called by {Caller()}.");
             }
 
