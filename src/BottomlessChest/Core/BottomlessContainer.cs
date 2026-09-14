@@ -158,6 +158,7 @@ namespace BottomlessChest.Core
             }
 
             Registry[_container] = this;
+            StoreTrace.Container("awake", null, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
         }
 
         /// <summary>
@@ -186,6 +187,7 @@ namespace BottomlessChest.Core
 
             if (_container != null)
             {
+                StoreTrace.Container("destroyed", CurrentStoreId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
                 InventoryCapacity.Forget(_container.m_inventory);
                 Registry.Remove(_container);
             }
@@ -282,6 +284,8 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            StoreTrace.Container("save requested", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
+
             // A partial load is more dangerous than a failed one: the chest looks populated,
             // just smaller, so nothing seems wrong until the truncated copy is written back
             // over the real contents.
@@ -345,6 +349,7 @@ namespace BottomlessChest.Core
                 return;
             }
 
+            StoreTrace.Container("save wrote", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
             SidecarStore.Instance.Put(storeId, payload);
         }
 
@@ -517,6 +522,7 @@ namespace BottomlessChest.Core
                 LoadIntoInventory(contents);
                 InventoryCapacity.Repack(_container.m_inventory);
                 InventoryCapacity.Apply(_container.m_inventory);
+                StoreTrace.Container("loaded", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
                 return true;
             }
             catch (Exception ex)

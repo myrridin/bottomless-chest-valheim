@@ -17,8 +17,9 @@ namespace BottomlessChest.Commands
         public override string Name => "bottomless";
 
         public override string Help =>
-            "bottomless list | here | rebind <storeId> | fill <stacks> [prefab] | empty  " +
-            "(fill and empty are off by default; see the Testing section of the config)";
+            "bottomless list | here | probe | trace on [prefab] | trace off | rebind <storeId> | fill <stacks> [prefab] | empty | " +
+            "session-put [prefab]  (fill, empty and session-put are off by default; see the Testing " +
+            "section of the config)";
 
         public override void Run(string[] args)
         {
@@ -43,6 +44,22 @@ namespace BottomlessChest.Commands
 
                 case "here":
                     Here();
+                    break;
+
+                case "probe":
+                    Probe();
+                    break;
+
+                case "trace":
+                    Trace(args);
+                    break;
+
+                case "session-put":
+                    if (RequireCheats())
+                    {
+                        SessionPut(args);
+                    }
+
                     break;
 
                 case "rebind":
@@ -97,6 +114,144 @@ namespace BottomlessChest.Commands
             Console.instance.Print(chest == null
                 ? $"No bottomless chest within {SearchRadius}m."
                 : $"Nearest chest is bound to store {chest.CurrentStoreId}.");
+        }
+
+        /// <summary>
+        /// Reports each copy of the nearest chest's contents that this machine holds.
+        /// </summary>
+        /// <remarks>
+        /// On the server authority a chest can exist twice in memory: the Container's own
+        /// inventory, loaded once from the store, and a ChestSession's, which remote players'
+        /// takes and deposits change. Nothing reconciles the two, and both write the same store
+        /// entry. This prints all three side by side so a disagreement is visible directly,
+        /// rather than inferred from which items went missing afterwards.
+        /// </remarks>
+        private static void Probe()
+        {
+            var chest = Nearest();
+            if (chest == null)
+            {
+                Console.instance.Print($"No bottomless chest within {SearchRadius}m.");
+                return;
+            }
+
+            var storeId = chest.CurrentStoreId;
+            Report($"Chest {storeId}");
+
+            if (!SidecarStore.IsServerAuthority)
+            {
+                Report(
+                    "  Not the server authority: this machine holds a page, not the chest. " +
+                    "Run probe on the host.");
+                return;
+            }
+
+            Report(
+                "  container copy : " +
+                (chest.AwaitingContents ? "not loaded" : StoreTrace.Fingerprint(chest.Inventory)));
+            Report($"  store          : {StoreStacks(storeId)}");
+            Report(ChestSessions.TryGet(storeId, out var session)
+                ? $"  session        : open, v{session.Version}, {StoreTrace.Fingerprint(session.Inventory)}"
+                : "  session        : none open");
+        }
+
+        /// <summary>
+        /// Prints to the console and to the log.
+        /// </summary>
+        /// <remarks>
+        /// The log copy is the one that matters: it carries a timestamp and is read back
+        /// exactly, where console output had to be retyped and lost precision doing it. Only
+        /// probe calls this, so it costs nothing unless someone asks.
+        /// </remarks>
+        private static void Report(string line)
+        {
+            Console.instance.Print(line);
+            Plugin.Log.LogInfo("[probe] " + line);
+        }
+
+        private static void Trace(IReadOnlyList<string> args)
+        {
+            var mode = args.Count > 1 ? args[1].ToLowerInvariant() : string.Empty;
+            if (mode == "on")
+            {
+                StoreTrace.Watch = args.Count > 2 ? args[2] : null;
+                StoreTrace.On = true;
+                Report($"Store trace on{(StoreTrace.Watch == null ? string.Empty : $", watching {StoreTrace.Watch}")}. Events go to LogOutput.log.");
+            }
+            else if (mode == "off")
+            {
+                StoreTrace.On = false;
+                Report("Store trace off.");
+            }
+            else
+            {
+                Console.instance.Print("Usage: bottomless trace on [prefab] | bottomless trace off");
+            }
+        }
+
+        private static string StoreStacks(string storeId) =>
+            !string.IsNullOrEmpty(storeId)
+            && SidecarStore.Instance.TryGet(storeId, out var bytes)
+            && bytes != null
+            && Logic.InventoryPayload.TryReadHeader(bytes, out var header)
+                ? $"{header.Count} stacks"
+                : "no entry";
+
+        /// <summary>
+        /// Deposits one stack into the nearest chest the way a remote player's deposit reaches
+        /// the host: through a session.
+        /// </summary>
+        /// <remarks>
+        /// Runs the same server-side sequence a client's open, deposit and close trigger -
+        /// Acquire, Deposit, Persist, Release - without needing a second machine. It exists to
+        /// reproduce the two-copies question on a single player: the host is the server
+        /// authority, so this creates exactly the session a remote client would. Pick an item
+        /// the chest does not already hold, or the deposit merges and adds no stack to see.
+        /// </remarks>
+        private static void SessionPut(IReadOnlyList<string> args)
+        {
+            var chest = Nearest();
+            if (chest == null)
+            {
+                Console.instance.Print($"No bottomless chest within {SearchRadius}m.");
+                return;
+            }
+
+            if (!SidecarStore.IsServerAuthority)
+            {
+                Console.instance.Print(
+                    "session-put reproduces the host's side of a remote deposit, so it only runs " +
+                    "on the server authority.");
+                return;
+            }
+
+            var prefab = args.Count > 1 ? args[1] : "Thistle";
+            var items = TestData.Build(1, prefab, out var error);
+            if (error != null)
+            {
+                Console.instance.Print(error);
+                return;
+            }
+
+            var storeId = chest.CurrentStoreId;
+            var session = ChestSessions.Acquire(storeId);
+            if (session == null)
+            {
+                Console.instance.Print("Could not open a session on this chest; the store may not be ready yet.");
+                return;
+            }
+
+            var before = session.TotalCount;
+            session.Deposit(items[0]);
+            ChestSessions.Persist(session);
+            var after = session.TotalCount;
+            ChestSessions.Release(storeId);
+
+            Console.instance.Print($"Deposited one {prefab} stack through a session.");
+            Console.instance.Print(
+                $"  session went {before} -> {after} stacks" +
+                (after == before ? " - it merged into an existing stack; use an item the chest does not hold" : string.Empty));
+            Probe();
         }
 
         private static void Rebind(IReadOnlyList<string> args)
