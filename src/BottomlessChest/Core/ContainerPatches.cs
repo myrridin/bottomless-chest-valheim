@@ -49,6 +49,36 @@ namespace BottomlessChest.Core
                 Plugin.Degraded || !BottomlessContainer.TryResolve(__instance, out _);
         }
 
+        /// <summary>
+        /// Records the chest as loaded the way vanilla's own Load would have.
+        /// </summary>
+        /// <remarks>
+        /// Vanilla sets <c>m_lastRevision</c> inside <c>Container.Load</c>, which this patch
+        /// replaces, so a bottomless chest kept <c>uint.MaxValue</c> forever. ValheimPlus 10.1.2
+        /// reads exactly that value as "not loaded yet" and leaves the chest out of every search -
+        /// no crafting from it, no station pulling from it or depositing into it, anywhere.
+        ///
+        /// On the server authority only once the contents are really in memory: that is what the
+        /// signal means to ValheimPlus, which waits on it before depositing, and an early deposit
+        /// into an unloaded chest is refused a save. A client never holds the contents, and
+        /// answers for the chest from its index instead, so it is ready as soon as it exists.
+        /// </remarks>
+        private static void MarkLoaded(Container container, BottomlessContainer bottomless)
+        {
+            var view = container.m_nview;
+            if (view == null || !view.IsValid())
+            {
+                return;
+            }
+
+            if (SidecarStore.IsServerAuthority && bottomless.AwaitingContents)
+            {
+                return;
+            }
+
+            container.m_lastRevision = view.GetZDO().DataRevision;
+        }
+
         [HarmonyPatch(typeof(Container), "Load")]
         private static class LoadPatch
         {
@@ -61,6 +91,7 @@ namespace BottomlessChest.Core
 
                 bottomless.EnsureRegistered();
                 __result = bottomless.LoadFromStore();
+                MarkLoaded(__instance, bottomless);
                 return false;
             }
         }
