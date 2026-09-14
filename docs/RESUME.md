@@ -108,6 +108,10 @@ has to be read with that in mind.
         - `TrophyDraugrFem` → `TrophyDraugr`
         - `TrophyFrostTroll` → `TrophyForestTroll`
 
+        The 10M-stack store `e1b72671` adds two more pairs (10 of 994 prefabs changed):
+        - `Voidplasm` → `Ectoplasm`
+        - `SmallPartsGoldUncooked` → `GenericMoldUncooked`
+
         These are real items. Vanilla's own `AddItem` stacks on the same key, but consolidation
         sweeps the whole chest unprompted. Proposed: add the prefab name to the key
         (`ItemAdapter.ItemId`), for both `Collapse` and `ChestSession.Deposit`. Chests already
