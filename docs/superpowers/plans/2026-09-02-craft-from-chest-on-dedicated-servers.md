@@ -56,6 +56,17 @@ Every ruling gives why, and what it costs if wrong.
 - **G4. Ignore the plan's test totals.** The suite was 164 after Task 2.
 - **G5.** `NetworkCompatibility` is `VersionStrictness.Minor`, so a 0.3.0 peer never talks to
   a 0.2.x one. Message numbers still only append.
+- **G6. `ValheimPlusBridge.Attached` is the single switch** (added after review, `7505ce4`).
+  It is true only when ValheimPlus is present and **all three** hooks attach. A partial set is
+  detached, because the read hook without the removal hooks means free crafts. Everything done
+  on ValheimPlus's behalf checks it:
+  - the hook bodies;
+  - index polling in `BottomlessContainer`;
+  - deposit forwarding in `ClientDepositGuard`.
+
+  Without V+, a client behaves as 0.2.1 did. Server message handlers stay ungated, because the
+  asking client may run V+ when the server does not, and with nobody asking they never run.
+  **Anything new done for V+ must check this switch.**
 
 ### Task 3 — the cache
 
