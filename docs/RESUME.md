@@ -5,9 +5,11 @@ session, with nothing else in hand.
 
 ## The one-line answer
 
-**0.2.1 is shipped (the A1 data-loss hotfix) and merged into this branch. 0.3.0 is planned,
-A1 and A3 are done.** It is ValheimPlus 10.1.2 support, the changes the user asked for, and
-items carried forward. Work happens on branch `release-0.3.0` — **continue at A2, then B4.**
+**0.2.1 is shipped and merged into this branch.** 0.3.0 work on `release-0.3.0`:
+- A1, A3 and B4–B8 are done: craft-from-chest for ValheimPlus 10.1.2 is implemented.
+- B9, the dedicated-server test, is in progress and has found two shipped bugs, both fixed.
+- **Continue B9** (see its run notes), then B10 re-review, then C and D, then E.
+- A2 is still open.
 
 A popular mod raises the cost of the standing rule: anyone on any earlier version must be
 able to upgrade without losing data. Every item that touches storage or config defaults
@@ -99,25 +101,26 @@ has to be read with that in mind.
         which our patch replaces, so the value never changed. This breaks craft-from-chest and
         stations in single-player and on servers, 0.2.1 included. The fix sets the revision in
         our Load patch: always on a client, and only once contents are loaded on the authority.
-      - **Bug 2: consolidation changes item identity. Fixed on `release-0.3.0`** (`390697b`); not yet deployed. The key is now
-        `Logic.StackIdentity.Key(prefab, sharedName, quality, variant, worldLevel)`, which is
-        tested. The user chose to fold both bugs into 0.3.0 rather than ship a 0.2.2 hotfix. `StackConsolidation.StackKey`
-        is `m_shared.m_name|quality|variant|worldLevel` and has no prefab, so different prefabs
-        that share a shared name merge into whichever stack absorbs them. Item totals are
-        conserved; identities are not. Seen when V+ `itemStackMultiplier = 900` on the server let
-        the filler stores merge. In store `2ce7dd26`, 6 of 707 prefabs changed:
+      - **Bug 2: consolidation changed item identity. Fixed in `390697b`; not yet deployed.**
+        The old key was `m_shared.m_name|quality|variant|worldLevel`, with no prefab, so
+        different prefabs sharing a name merged into whichever stack absorbed them. Item totals
+        were conserved; identities were not. Seen when V+ `itemStackMultiplier = 900` on the
+        server let the filler stores merge. Five pairs across `2ce7dd26` and `e1b72671`, all real
+        items:
         - `FishRaw` → `FishAnglerRaw`
         - `TrophyDraugrFem` → `TrophyDraugr`
         - `TrophyFrostTroll` → `TrophyForestTroll`
-
-        The 10M-stack store `e1b72671` adds two more pairs (10 of 994 prefabs changed):
         - `Voidplasm` → `Ectoplasm`
         - `SmallPartsGoldUncooked` → `GenericMoldUncooked`
 
-        These are real items. Vanilla's own `AddItem` stacks on the same key, but consolidation
-        sweeps the whole chest unprompted. Proposed: add the prefab name to the key
-        (`ItemAdapter.ItemId`), for both `Collapse` and `ChestSession.Deposit`. Chests already
-        merged stay merged.
+        The key is now `Logic.StackIdentity.Key(prefab, sharedName, quality, variant,
+        worldLevel)`, which is tested and drives both `Collapse` and `ChestSession.Deposit`.
+        Stacks already merged stay merged. Vanilla's `AddItem` still stacks by name, which is
+        out of scope.
+      - **Release decision (user, 2026-09-14):** both bugs ship in 0.3.0; no 0.2.2 hotfix.
+      - **Still to run** after deploying `390697b`: steps 2–7 of the B9 list (build menu,
+        crafting open and closed, kiln pull and coal deposit, Place Stacks, a server-owned kiln
+        near spawn, then save).
 - [ ] **B10. `/code-review` the branch.** Storage and network code; every round so far has
       found real defects that self-review did not.
 
