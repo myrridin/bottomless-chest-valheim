@@ -98,6 +98,5 @@ namespace BottomlessChest.Logic
 
             return total;
         }
-
     }
 }
