@@ -107,6 +107,121 @@ namespace BottomlessChest.Compat
             }
         }
 
+        /// <summary>
+        /// Prefix on <c>InventoryAssistant.RemoveItemFromChest(Container, ItemData, int)</c>.
+        /// </summary>
+        /// <remarks>
+        /// Any quality, because ValheimPlus's own removal matches on the shared name alone -
+        /// and its needle is usually a template at quality 1, which would refuse materials it
+        /// means to take.
+        /// </remarks>
+        internal static bool RemoveByItemPrefix(Container chest, ItemDrop.ItemData needle, int amount, ref int __result) =>
+            RunRemoval(chest, needle?.m_shared?.m_name, amount, ref __result);
+
+        /// <summary>
+        /// Prefix on <c>InventoryAssistant.RemoveItemFromChest(Container, string, int)</c>.
+        /// </summary>
+        internal static bool RemoveByNamePrefix(Container chest, string needle, int amount, ref int __result) =>
+            RunRemoval(chest, needle, amount, ref __result);
+
+        private static bool _warnedWrite;
+
+        private static bool RunRemoval(Container chest, string sharedName, int amount, ref int __result)
+        {
+            try
+            {
+                if (!TryTake(chest, sharedName, amount, out var taken))
+                {
+                    return true;
+                }
+
+                __result = taken;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                if (!_warnedWrite)
+                {
+                    _warnedWrite = true;
+                    Plugin.Log.LogWarning($"Could not take from a bottomless chest for ValheimPlus: {ex}");
+                }
+
+                // The original against a client's page could remove items that exist only
+                // here and report them consumed. Claiming nothing was taken is the safe answer.
+                if (chest != null && !SidecarStore.IsServerAuthority && BottomlessContainer.TryResolve(chest, out _))
+                {
+                    __result = 0;
+                    return false;
+                }
+
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Answers a removal from the index immediately, then tells the server.
+        /// </summary>
+        /// <remarks>
+        /// ValheimPlus expects an int back and cannot wait for a round trip. The index came
+        /// from the server one round trip ago and <see cref="ChestIndex.Take"/> never reports
+        /// more than it holds, so the error can only fall the player's way - an occasional
+        /// unpaid craft, never an overdrawn chest.
+        ///
+        /// Handles every bottomless chest on a client, index or not. Letting the original run
+        /// would remove items from the page on screen, which exist only here, and report them
+        /// consumed while the server still holds them.
+        /// </remarks>
+        /// <returns>False when this is not ours to answer and the original should run.</returns>
+        private static bool TryTake(Container chest, string sharedName, int amount, out int taken)
+        {
+            taken = 0;
+
+            if (Plugin.Degraded || SidecarStore.IsServerAuthority || chest == null
+                || !BottomlessContainer.TryResolve(chest, out var bottomless))
+            {
+                return false;
+            }
+
+            var storeId = bottomless.CurrentStoreId;
+            if (amount <= 0 || string.IsNullOrEmpty(sharedName) || string.IsNullOrEmpty(storeId)
+                || !Net.ChestRpc.Indexes.TryGet(storeId, out var index))
+            {
+                return true;
+            }
+
+            // ValheimPlus names items by their shared name token; the index is keyed by prefab
+            // name, because that is what the server stores. Resolved through the same
+            // templates the stand-ins are built from.
+            var asked = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var entry in index.Entries)
+            {
+                if (taken >= amount)
+                {
+                    break;
+                }
+
+                if (entry.Count <= 0 || !asked.Add(entry.ItemId))
+                {
+                    continue;
+                }
+
+                var template = ItemTemplates.For(entry.ItemId);
+                if (template == null || template.m_shared.m_name != sharedName)
+                {
+                    continue;
+                }
+
+                var got = index.Take(entry.ItemId, -1, amount - taken);
+                if (got > 0)
+                {
+                    Net.ChestRpc.TakeByName(storeId, index.Version, entry.ItemId, -1, got);
+                    taken += got;
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>Drops the stand-ins kept for a chest, when the chest goes.</summary>
         internal static void Forget(string storeId)
         {

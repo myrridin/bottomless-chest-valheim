@@ -63,13 +63,29 @@ namespace BottomlessChest.Compat
             var listItems = assistant.GetMethod(
                 "GetNearbyChestItemsByContainerList", Statics, null, new[] { typeof(List<Container>) }, null);
 
+            var removeByItem = assistant.GetMethod(
+                "RemoveItemFromChest", Statics, null, new[] { typeof(Container), typeof(ItemDrop.ItemData), typeof(int) }, null);
+
+            var removeByName = assistant.GetMethod(
+                "RemoveItemFromChest", Statics, null, new[] { typeof(Container), typeof(string), typeof(int) }, null);
+
             var attached = 0;
             if (TryPatch(harmony, listItems, null, nameof(ChestQueryPatches.ListItemsPostfix), "chest item list"))
             {
                 attached++;
             }
 
-            Plugin.Log.LogInfo($"ValheimPlus chest integration: {attached} of 1 hook(s) attached.");
+            if (TryPatch(harmony, removeByItem, nameof(ChestQueryPatches.RemoveByItemPrefix), null, "remove-by-item"))
+            {
+                attached++;
+            }
+
+            if (TryPatch(harmony, removeByName, nameof(ChestQueryPatches.RemoveByNamePrefix), null, "remove-by-name"))
+            {
+                attached++;
+            }
+
+            Plugin.Log.LogInfo($"ValheimPlus chest integration: {attached} of 3 hook(s) attached.");
         }
 
         private static bool TryPatch(Harmony harmony, MethodInfo target, string prefix, string postfix, string what)

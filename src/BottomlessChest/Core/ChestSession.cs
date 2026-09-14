@@ -252,6 +252,67 @@ namespace BottomlessChest.Core
         }
 
         /// <summary>
+        /// Removes up to <paramref name="amount"/> of an item by prefab name, and reports how
+        /// much it actually took.
+        /// </summary>
+        /// <remarks>
+        /// Another mod has already been told these items were consumed; this is the server
+        /// making it true, and it never takes more than the chest holds. Matches items the way
+        /// <see cref="ItemAdapter.ItemId"/> names them, since that is what the index was built
+        /// from. A negative quality means any.
+        ///
+        /// Keeps the open-stack index honest the same way <see cref="Take"/> does: a stack
+        /// emptied is forgotten, a stack left part-full becomes the one the next deposit fills.
+        /// </remarks>
+        internal int RemoveByName(string itemId, int quality, int amount)
+        {
+            if (string.IsNullOrEmpty(itemId) || amount <= 0)
+            {
+                return 0;
+            }
+
+            var items = Inventory.m_inventory;
+            var taken = 0;
+
+            for (var i = items.Count - 1; i >= 0 && taken < amount; i--)
+            {
+                var item = items[i];
+                if (item == null
+                    || new ItemAdapter(item).ItemId != itemId
+                    || (quality >= 0 && item.m_quality != quality))
+                {
+                    continue;
+                }
+
+                var from = item.m_stack < amount - taken ? item.m_stack : amount - taken;
+                if (from <= 0)
+                {
+                    continue;
+                }
+
+                item.m_stack -= from;
+                taken += from;
+
+                if (item.m_stack <= 0)
+                {
+                    items.RemoveAt(i);
+                    Forget(item);
+                }
+                else
+                {
+                    Reopen(item);
+                }
+            }
+
+            if (taken > 0)
+            {
+                Touch();
+            }
+
+            return taken;
+        }
+
+        /// <summary>
         /// Stacks with room left, one per kind of item.
         /// </summary>
         /// <remarks>

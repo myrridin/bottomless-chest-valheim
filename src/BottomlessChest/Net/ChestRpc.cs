@@ -36,6 +36,27 @@ namespace BottomlessChest.Net
         internal static readonly Logic.ChestIndexCache Indexes = new Logic.ChestIndexCache();
 
         /// <summary>
+        /// Tells the server another mod consumed from a chest, against the index version it
+        /// acted on.
+        /// </summary>
+        internal static void TakeByName(string storeId, long version, string itemId, int quality, int amount)
+        {
+            if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(itemId) || amount <= 0 || !Ready)
+            {
+                return;
+            }
+
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.TakeByName);
+            package.Write(storeId);
+            package.Write(version);
+            package.Write(itemId);
+            package.Write(quality);
+            package.Write(amount);
+            ToServer(package);
+        }
+
+        /// <summary>
         /// Asks the server for a summary of a chest, quoting the one already held so an
         /// unchanged chest costs no reply.
         /// </summary>
@@ -504,6 +525,35 @@ namespace BottomlessChest.Net
                     if (session.Generation == heldGeneration && session.Version == heldVersion)
                     {
                         break;
+                    }
+
+                    SendIndex(sender, session);
+                    break;
+                }
+
+                case ChestMessage.TakeByName:
+                {
+                    // Read, and deliberately not used to refuse: the client has already
+                    // answered the other mod and the craft has happened. The fresh index sent
+                    // back is what reconciles the two sides.
+                    package.ReadLong();
+                    var itemId = package.ReadString();
+                    var quality = package.ReadInt();
+                    var amount = package.ReadInt();
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
+                    {
+                        break;
+                    }
+
+                    if (!RefusesToChange(session, sender, "a removal by another mod"))
+                    {
+                        // What is actually there, never what was claimed.
+                        if (session.RemoveByName(itemId, quality, amount) > 0)
+                        {
+                            ChestSessions.Persist(session);
+                        }
                     }
 
                     SendIndex(sender, session);

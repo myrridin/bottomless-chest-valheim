@@ -51,5 +51,8 @@ namespace BottomlessChest.Net
 
         /// <summary>Server returns totals per item type, so another mod can query the chest.</summary>
         IndexResult = 14,
+
+        /// <summary>Client reports what another mod consumed against the index.</summary>
+        TakeByName = 15,
     }
 }
