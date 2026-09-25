@@ -340,5 +340,8 @@ installed a bottomless chest answers every question with nothing.
 - **Known limit:** one deposit is in flight at a time, so a mass deposit moves one stack per
   press until deposits are queued the way offers are.
 
-Ships as **0.3.1**: no wire change, so `VersionStrictness.Minor` still lets 0.3.x clients and
-servers mix.
+Ships as **0.4.0**. It is a new capability, not a fix, and the version string should say so on
+the mod page. The cost is that `VersionStrictness.Minor` compares major and minor, so every
+client and the server must move together - a patch number would have let 0.3.x and 0.4.x mix,
+since this change is client-side only, but it would label a feature as a fix. The user chose the
+honest label (2026-09-25).
