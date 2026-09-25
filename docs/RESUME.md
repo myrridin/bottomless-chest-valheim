@@ -326,8 +326,21 @@ has to be read with that in mind.
         `GetItem` handing out an oversized stand-in and no answer for removing a stand-in by
         reference; `CountItemsByName`/`CountItemsByType` unanswered; Place Stacks silent when it
         could not queue; and two silent item-loss paths on drops.
-      - **Not yet retested after those fixes**, and `v0.4.0` is not tagged.
-      - Known limit: a mass deposit moves one stack per press (one deposit in flight at a time).
+      - **Deposits into a chest nobody has open** were added after that review (`9aa9af2`): a put
+        is addressed to a chest by id and carries its own id that the answer echoes, so several
+        can be in flight. Before this, such a deposit destroyed the item - it went into the
+        client's copy of the chest and that copy is discarded; the hazard existed in 0.3.0 and
+        earlier for any mod that deposited into a closed bottomless chest.
+      - **Second review round** found seven more, all fixed in `6e7f255`: two sends claimed as
+        successful when the routing could drop them (a forwarded deposit destroyed, a paid-for
+        removal never made); a Place Stacks offer read loosely, so an unresolvable item shifted
+        the positions the reply names; a forwarded deposit that threw mid-keep vanishing; an
+        unanswered offer silently disabling Place Stacks; the default migrations re-running every
+        launch; and an unstackable deposit re-fragmenting the stacks after it.
+      - **Verified in game and tagged `v0.4.0`.** Gate: the four identifiers and the store read
+        path are identical to `v0.3.0`; 207 tests; package verified against the build.
+      - Known limit: a quick-deposit hotkey only offers kinds its own client can see in the
+        chest, which is the page it last looked at - see D18.
 
 - [ ] **D18. Mirror a closed chest's contents into its page on a client.** A client holds only
       the page it last saw, so a mod reading a chest's inventory sees at most forty items -
