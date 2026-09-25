@@ -294,3 +294,15 @@ to 10.1.2, class for class, so `Compat/InventoryQueryPatches` covers the same gr
 Confirmed at runtime: the dedicated server on 1.0.15, V+ 10.2.0 and Jotunn 2.30.2 logs
 "ValheimPlus chest integration: all 3 hooks attached" and loads without degrading, with no
 auto-stack targeting warning.
+
+## 1.0.16, the same day
+
+Valheim updated again while testing (client reports 1.0.16; the dedicated server was still on the
+19 September build and connected fine - network version 40 on both). Decompiled to
+`/mnt/c/valheim_mods/valheim-latest-assemblies/latest.ref.cs` and diffed against 1.0.15: every
+method above is **identical**, serialization included. 262 lines differ elsewhere in the assembly,
+none of it ours.
+
+`nocost` is registered `onlyServer: true`, and `Console.IsCheatsEnabled()` requires this machine to
+be the server, so it cannot be used from a client of the dedicated server - the same trap as
+`spawn`, `goto`, `debugmode` and `fly`. Use `bottomless fill` and craft-from-chest instead.
