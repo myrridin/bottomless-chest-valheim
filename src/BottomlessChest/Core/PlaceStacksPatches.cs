@@ -232,7 +232,8 @@ namespace BottomlessChest.Core
                 var slot = inventory.FindEmptySlot(inventory.TopFirst(item));
                 if (slot.x < 0)
                 {
-                    ZLog.LogError($"Trying to add item to occupied slot {slot.x}, {slot.y}");
+                    // Warning, not Error: this is what vanilla AddItem logs as of 1.0.15.
+                    ZLog.LogWarning($"Trying to add item to occupied slot {slot.x}, {slot.y}");
                     return false;
                 }
 
