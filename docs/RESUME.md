@@ -391,7 +391,15 @@ has to be read with that in mind.
       the chest unsplit into a player's vanilla inventory. Decide between wiring
       `SplitForExit` into the exit paths and deleting the lot. Also correct
       `StackConsolidation.cs:48`, whose comment still names `UnlimitedStacks`.
-- [ ] **D16. A take that does nothing.** The client blanks slots and sends a take quoting its
+- [ ] **D16. A take that does nothing. Deferred past 0.3.0 by the user (2026-09-25).**
+      Seen twice in the B11 run while a kiln pulled from the chest being browsed: "Rejecting
+      stale take … client is at v8, session is at v9", and again at v18/v19. Invisible on screen
+      - the user noticed nothing - because the page reloads and the item stays. The cause here
+      is legitimate: a station emptying a stack or depositing a new one really does reorder the
+      chest, so the fingerprint check in `aaddbfb` cannot help. The robust fix is to stop
+      validating a take by page version and tag each page slot with the item's identity, so a
+      take is accepted whenever it still names the same stack. Another wire change and another
+      review round; NearbyCrafting (issue #3) comes first. The client blanks slots and sends a take quoting its
       version; a second take sent before the first's count update arrives quotes the old
       version, the server rejects it as stale (`ChestRpc`, Take handler), resends the page,
       and the item stays in the chest. No data is lost — the guard is doing its job — but the
