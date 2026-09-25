@@ -5,7 +5,8 @@ things again.
 
 ## What it does
 
-- **Unlimited storage.** One chest replaces a wall of them. Tested with a million stacks.
+- **Unlimited storage.** One chest replaces a wall of them. Tested with 100,000 stacks. A
+  million still works, but makes a server close to unusable.
 - **Type to find.** A search box sits at the top of the chest window and filters as you
   type. Matching items are grouped by name so like things sit together.
 - **Category search.** `@food`, `@weapon`, `@armor`, `@material`, `@ammo`, `@tool`,
@@ -15,6 +16,9 @@ things again.
   not on the whole chest.
 - **Works on dedicated servers.** The server holds the contents and sends only what is on
   screen, so a huge chest costs no more to browse than a small one.
+- **Works with ValheimPlus.** Craft, build and repair from the chest, and let kilns, smelters,
+  fermenters, cooking stations and fires pull from it and put their output back, on a dedicated
+  server as well as in single-player.
 
 ## Building one
 
@@ -26,13 +30,9 @@ Hammer, under Furniture, at a workbench. The cost is configurable.
 - The **mouse wheel** or the **scrollbar** moves through a large chest.
 - The green slot at the end of the page is always free, so there is somewhere to drop into
   a full chest.
-- Holding the use key deposits matching stacks without opening the chest.
 
 ## Notes
 
-- **Everyone on a server needs the mod**, including the server itself. Joining without it
-  is refused with a version mismatch rather than allowed - a client that cannot resolve the
-  chest would otherwise destroy it.
 - **A chest that still holds something cannot be dismantled.** Emptying an unlimited chest
   onto the ground would spawn an item for every stack, which is not something a world
   recovers from.
@@ -47,13 +47,12 @@ Hammer, under Furniture, at a workbench. The cost is configurable.
 
 | Setting | Default | |
 |---|---|---|
-| `Crafting.Requirements` | `FineWood:20,BlackMetal:10,SurtlingCore:5` | Build cost, as prefab names |
+| `Crafting.Requirements` | `Wood:10` | Build cost, as prefab names |
 | `Appearance.ModelScale` | `1.0` | Size of the chest model |
-| `Appearance.BodyTint` | `#C4C2BC` | Colour over the chest body |
-| `Appearance.LidTint` | `#2E2E33` | Colour over the lid |
-| `Appearance.GlowColour` | `#8FA86B` | Colour of the lid glow |
-| `Appearance.GlowStrength` | `0.35` | Glow intensity; above 1 blooms |
-| `Multiplayer.SnapshotDebounceSeconds` | `1.5` | Delay before sending changes to the server |
+| `Appearance.BodyTint` | `#C9B79A` | Colour over the chest body |
+| `Appearance.LidTint` | `#3A2E22` | Colour over the lid |
+| `Appearance.GlowColour` | `#FFC489` | Colour of the lid glow |
+| `Appearance.GlowStrength` | `0.25` | Glow intensity; above 1 blooms |
 
 ## Commands
 

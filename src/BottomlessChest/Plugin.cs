@@ -16,6 +16,8 @@ namespace BottomlessChest
     /// </remarks>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
+    // Soft: only so ValheimPlus's assembly has loaded before Awake looks for it.
+    [BepInDependency(Compat.ValheimPlusBridge.Guid, BepInDependency.DependencyFlags.SoftDependency)]
     [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.Minor)]
     public class Plugin : BaseUnityPlugin
     {
@@ -25,7 +27,7 @@ namespace BottomlessChest
         // assembly version, and VersionStrictness.Minor means 0.1 and 0.2 are incompatible.
         // Leaving it behind lets a 0.1.0 client join a 0.2.0 server, which then sends it a
         // store format it will read as garbage. Bump it with the manifest, always.
-        public const string PluginVersion = "0.2.1";
+        public const string PluginVersion = "0.3.0";
 
         internal static ManualLogSource Log { get; private set; }
 
@@ -89,6 +91,20 @@ namespace BottomlessChest
                 catch (System.Exception unpatchEx)
                 {
                     Log.LogError($"Could not roll back partial patches: {unpatchEx}");
+                }
+            }
+
+            if (!Degraded)
+            {
+                try
+                {
+                    // After prefab registration and our own patches, and on its own: a problem
+                    // with another mod must not be able to take the chest down.
+                    Compat.ValheimPlusBridge.Attach(_harmony);
+                }
+                catch (System.Exception ex)
+                {
+                    Log.LogWarning($"ValheimPlus integration could not start: {ex.Message}");
                 }
             }
 

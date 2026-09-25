@@ -12,7 +12,9 @@ namespace BottomlessChest.Tests
             string itemId = null,
             int maxStackSize = 100,
             int variant = 0,
-            string customData = null)
+            string customData = null,
+            int worldLevel = 0,
+            bool cheated = false)
         {
             DisplayName = displayName;
             Kind = kind;
@@ -22,6 +24,8 @@ namespace BottomlessChest.Tests
             MaxStackSize = maxStackSize;
             Variant = variant;
             CustomData = customData;
+            WorldLevel = worldLevel;
+            Cheated = cheated;
         }
 
         public string ItemId { get; }
@@ -41,5 +45,9 @@ namespace BottomlessChest.Tests
         public int Variant { get; }
 
         public string CustomData { get; }
+
+        public int WorldLevel { get; }
+
+        public bool Cheated { get; }
     }
 }

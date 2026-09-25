@@ -45,5 +45,23 @@ namespace BottomlessChest.Net
 
         /// <summary>Server reports fresh totals without re-sending the page.</summary>
         Counts = 12,
+
+        /// <summary>Client asks for a summary of a chest, quoting the one it already holds.</summary>
+        IndexRequest = 13,
+
+        /// <summary>Server returns totals per item type, so another mod can query the chest.</summary>
+        IndexResult = 14,
+
+        /// <summary>Client reports what another mod consumed against the index.</summary>
+        TakeByName = 15,
+
+        /// <summary>Client hands over an item another mod put into the chest.</summary>
+        DepositForward = 16,
+
+        /// <summary>Server could not keep a forwarded item and sends it back to be dropped.</summary>
+        DepositRefused = 17,
+
+        /// <summary>Server declined an offered item. The client keeps it and may offer it again.</summary>
+        PutRefused = 18,
     }
 }

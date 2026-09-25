@@ -22,6 +22,7 @@ namespace BottomlessChest.Core
             (typeof(InventoryGrid), nameof(InventoryGrid.UpdateGui)),
             (typeof(InventoryGui), nameof(InventoryGui.UpdateContainer)),
             (typeof(Inventory), nameof(Inventory.Changed)),
+            (typeof(Inventory), nameof(Inventory.StackAll)),
         };
 
         /// <summary>Logs co-patchers the first time a chest is opened.</summary>

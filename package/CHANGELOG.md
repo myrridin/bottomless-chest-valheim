@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.3.0
+
+**Crafting, building and stations can use a bottomless chest on a dedicated server**, with
+ValheimPlus. Place Stacks on a large chest is no longer slow. Scrolling, the window's size and
+gamepad support are fixed, and two ways items could be lost or duplicated are closed.
+
+**Everyone on a server needs 0.3.0**, including the server. A 0.2.x client cannot join a 0.3.0
+server. Chests are stored exactly as before: upgrading from 0.2.x or 0.1.0 keeps every item, and
+going back to 0.2.1 does too.
+
+### ValheimPlus
+
+Tested against ValheimPlus 10.2.0 on Valheim 1.0.16. Without ValheimPlus, nothing in this section
+runs and the mod behaves as 0.2.1 did.
+
+- **Craft, build and repair** from a bottomless chest, and see its materials counted in the
+  build and crafting panels.
+- **Stations use it.** Kilns, smelters, furnaces, windmills, spinning wheels, eitr refineries,
+  fermenters, cooking stations, ovens and fires pull from it, and station output goes back into
+  it. Beehives and sap collectors deposit into it.
+- **Output goes to the chest that already holds that item**, instead of whichever chest you
+  last had open.
+- **Place Stacks** works from the chest window, from holding the use key, and through
+  ValheimPlus's sweep of nearby chests.
+- **Fixed: a fire could be refuelled for free** from a bottomless chest, because the fuel came
+  off the copy on your screen and not out of the chest.
+- **Fixed: Place Stacks could duplicate items.** With two bottomless chests in range holding the
+  same item, both could keep the same stack. Present since 0.2.1 for anyone using ValheimPlus
+  10.1.2.
+- **World levels are respected.** Materials count, and are taken, by the same rules vanilla uses.
+
+### Speed
+
+- **Place Stacks into a large chest: 9.5 seconds, now 21 milliseconds** on a chest of ten
+  thousand stacks. Adding to a chest no longer re-reads it for every item, and the chest is
+  saved once per Place Stacks instead of once per stack.
+
+### The window
+
+- The window no longer scrolls itself, and the wheel moves one row per notch, only while the
+  pointer is over the chest.
+- The window no longer grows past its size while a station fills the chest.
+- The last row no longer shows an extra empty row.
+- Dragging an item out onto the world drops it on the ground, as vanilla does. It used to leave
+  the item in the chest as well.
+
+### Gamepad
+
+- The right stick scrolls the chest.
+- The left stick and D-pad move through it, and page at the top and bottom edges.
+- View/Back focuses the search box.
+- B closes the window.
+- The search box no longer shows a stray key hint.
+
+### Also
+
+- **Fixed: items that merely share a display name are no longer merged.** Raw fish of different
+  kinds, Draugr trophies, Ectoplasm and Voidplasm, and a few others could be combined into one
+  stack. Existing chests are corrected the first time they are opened.
+- **The build cost is now 10 wood**, the same as a wooden chest. If you never changed the cost,
+  your config is updated to match; if you set your own, it is left alone.
+- **The chest looks warmer** - wood with a low amber rim, instead of grey with a green glow. The
+  same rule applies: untouched colours are updated, colours you chose are left alone.
+- `Multiplayer.SnapshotDebounceSeconds` is gone. Nothing had read it since 0.2.0.
+- Dragging a quest item out of the chest window is refused, the way the game refuses it
+  everywhere else.
+- Tested with 100,000 stacks. A million still works, but makes a server close to unusable.
+
 ## 0.2.1
 
 **Fixes a way chest contents could be lost on player-hosted servers.** Recommended for anyone

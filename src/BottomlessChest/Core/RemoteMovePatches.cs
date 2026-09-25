@@ -82,6 +82,56 @@ namespace BottomlessChest.Core
             return Outcome.RunVanilla;
         }
 
+        /// <summary>
+        /// Dragging an item out of the window, onto the world.
+        /// </summary>
+        /// <remarks>
+        /// Vanilla drops through <c>Humanoid.DropItem</c> with the page as the inventory: it
+        /// removes the page's copy and spawns that on the ground, and the server - which still
+        /// holds the item - is never told. The item was on the floor and still in the chest.
+        ///
+        /// Turned into a take marked to drop on arrival: the server removes the item and hands it
+        /// back with the mark, and only then does it land on the ground where vanilla would have
+        /// put it. A refused take hands nothing back, so nothing is dropped. Vanilla never runs
+        /// for a page, even when the item cannot be found on it.
+        /// </remarks>
+        [HarmonyPatch(typeof(Humanoid), nameof(Humanoid.DropItem),
+            new[] { typeof(Inventory), typeof(ItemDrop.ItemData), typeof(int) })]
+        private static class DropOutside
+        {
+            private static bool Prefix(Inventory inventory, ItemDrop.ItemData item, int amount, ref bool __result)
+            {
+                if (Plugin.Degraded || item == null || !ChestView.IsRemotePage(inventory))
+                {
+                    return true;
+                }
+
+                // Vanilla refuses a quest item before it removes anything, so letting it run
+                // costs nothing and keeps its message. Taking one from the server first would
+                // put on the ground what the game says cannot be dropped.
+                if (item.m_shared.m_questItem)
+                {
+                    return true;
+                }
+
+                var slot = ChestView.PageSlotOf(item);
+                if (amount <= 0 || slot < 0)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                OneSlot.Clear();
+                OneSlot.Add(slot);
+                OneAmount.Clear();
+                OneAmount.Add(amount >= item.m_stack ? 0 : amount);
+                ChestView.RequestTake(OneSlot, OneAmount, dropOnArrival: true);
+
+                __result = true;
+                return false;
+            }
+        }
+
         [HarmonyPatch(typeof(Inventory), nameof(Inventory.MoveItemToThis),
             new[] { typeof(Inventory), typeof(ItemDrop.ItemData) })]
         private static class MoveWhole

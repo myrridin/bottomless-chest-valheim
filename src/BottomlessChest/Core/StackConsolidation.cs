@@ -20,15 +20,15 @@ namespace BottomlessChest.Core
     internal static class StackConsolidation
     {
         /// <summary>
-        /// What has to match for two stacks to be one stack.
+        /// What has to match for two stacks to be one stack. See <see cref="Logic.StackIdentity"/>.
         /// </summary>
-        /// <remarks>
-        /// Vanilla's own rule is name, quality and world level. Variant is added to it: two
-        /// items that differ only by variant look different, and silently merging them would
-        /// change what the player is holding.
-        /// </remarks>
         internal static string StackKey(ItemDrop.ItemData item) =>
-            $"{item.m_shared.m_name}|{item.m_quality}|{item.m_variant}|{item.m_worldLevel}";
+            Logic.StackIdentity.Key(
+                new Filter.ItemAdapter(item).ItemId,
+                item.m_shared.m_name,
+                item.m_quality,
+                item.m_variant,
+                item.m_worldLevel);
 
         /// <summary>
         /// Merges what can be merged, and reports how many stacks disappeared.
@@ -44,8 +44,9 @@ namespace BottomlessChest.Core
         /// One pass, compacting in place rather than building a second list - the caller may
         /// be holding ten million stacks, and a copy of that is real memory.
         ///
-        /// Stacks already above the vanilla ceiling are left exactly as they are. Only
-        /// UnlimitedStacks makes them, and topping one up would push it further out of spec.
+        /// Stacks already above the ceiling are left exactly as they are. They come from a
+        /// stack multiplier that has since been lowered or removed, and topping one up would
+        /// push it further out of spec.
         /// </remarks>
         internal static bool Collapse(
             Inventory inventory,

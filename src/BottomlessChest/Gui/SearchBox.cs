@@ -150,7 +150,13 @@ namespace BottomlessChest.Gui
                 _input.OnChanged(OnChanged);
                 var guard = _field.AddComponent<SearchFocusGuard>();
                 guard.Bind(_input);
-                guard.TakeFocus();
+
+                // Not on a gamepad: the player starts on the grid, and View/Back focuses the
+                // search. Taking focus on open blocked input, so B could not close the window.
+                if (!ZInput.IsGamepadActive())
+                {
+                    guard.TakeFocus();
+                }
                 _field.AddComponent<ChestScroller>();
                 _field.AddComponent<ChestScrollbarBridge>().Bind(gui.m_containerGrid);
 
@@ -208,6 +214,15 @@ namespace BottomlessChest.Gui
                 if (_status != null)
                 {
                     UpdateStatus();
+                }
+
+                // The View/Back button focuses the search on a gamepad. The stick clicks belong
+                // to Take All and Place Stacks, and the rest of the pad is navigation, item
+                // actions or closing the window; View is not used by the inventory screen.
+                if (_input != null && ChestView.IsOpen && ZInput.IsGamepadActive() && ZInput.GetButtonDown("JoyBack"))
+                {
+                    ZInput.ResetButtonStatus("JoyBack");
+                    _input.Focus();
                 }
             }
         }

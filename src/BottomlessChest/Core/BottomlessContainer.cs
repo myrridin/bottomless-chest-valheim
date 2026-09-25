@@ -54,6 +54,27 @@ namespace BottomlessChest.Core
 
         internal static IEnumerable<BottomlessContainer> Loaded => Registry.Values;
 
+        /// <summary>The loaded chest whose inventory this is, if any.</summary>
+        internal static bool TryResolveInventory(Inventory inventory, out BottomlessContainer found)
+        {
+            found = null;
+            if (inventory == null)
+            {
+                return false;
+            }
+
+            foreach (var candidate in Registry.Values)
+            {
+                if (candidate != null && ReferenceEquals(candidate.Inventory, inventory))
+                {
+                    found = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>Finds a loaded chest by its store id, for routing RPC replies.</summary>
         internal static bool TryResolveByStoreId(string storeId, out BottomlessContainer found)
         {
@@ -259,7 +280,21 @@ namespace BottomlessChest.Core
         /// </summary>
         private void Update()
         {
-            if (Plugin.Degraded || _container == null || !ContentsWatch.Enabled)
+            if (Plugin.Degraded || _container == null)
+            {
+                return;
+            }
+
+            if (!SidecarStore.IsServerAuthority)
+            {
+                // Place Stacks offers go out one at a time; something has to send the next one
+                // when a reply lands or a timeout passes, even with no chest window open.
+                Filter.ChestView.TickOffers();
+            }
+
+            RefreshIndex();
+
+            if (!ContentsWatch.Enabled)
             {
                 return;
             }
@@ -275,8 +310,63 @@ namespace BottomlessChest.Core
             _watch.Poll(_container.m_inventory, label, open);
         }
 
+        /// <summary>When this client next asks the server for this chest's summary.</summary>
+        private float _nextIndexAt = -1f;
+
+        /// <summary>The store last asked about, so the summary can be forgotten after the ZDO is gone.</summary>
+        private string _indexedStoreId;
+
+        /// <summary>
+        /// Keeps this client's summary of the chest current, so another mod can query it.
+        /// </summary>
+        /// <remarks>
+        /// Every chest instantiated here, not just those near the player. ValheimPlus stations
+        /// run on whichever peer owns them and look for chests up to 50 m from the station,
+        /// which can be well past 50 m from this player - but anything they can find is
+        /// instantiated on this client, so that set is exactly right. The server does not
+        /// answer when the chest has not changed, so asking costs one small message.
+        /// </remarks>
+        private void RefreshIndex()
+        {
+            // Only when ValheimPlus is here to ask. Each request keeps the chest's session alive
+            // on the server, so polling for nobody would hold every nearby chest in its memory.
+            if (SidecarStore.IsServerAuthority || !Net.ChestRpc.Ready || !Compat.ValheimPlusBridge.Attached)
+            {
+                return;
+            }
+
+            var now = UnityEngine.Time.unscaledTime;
+            if (_nextIndexAt < 0f)
+            {
+                // Spread across the second, so a base full of chests does not ask on one frame.
+                _nextIndexAt = now + UnityEngine.Random.value;
+                return;
+            }
+
+            if (now < _nextIndexAt)
+            {
+                return;
+            }
+
+            _nextIndexAt = now + 1f;
+
+            var storeId = CurrentStoreId;
+            if (string.IsNullOrEmpty(storeId))
+            {
+                return;
+            }
+
+            _indexedStoreId = storeId;
+            Net.ChestRpc.RequestIndex(storeId);
+        }
+
         private void OnDestroy()
         {
+            if (!string.IsNullOrEmpty(_indexedStoreId))
+            {
+                Net.ChestRpc.Indexes.Forget(_indexedStoreId);
+                Compat.ChestQueryPatches.Forget(_indexedStoreId);
+            }
 
             if (_container != null)
             {
@@ -382,6 +472,13 @@ namespace BottomlessChest.Core
 
             StoreTrace.Container("save requested", storeId, GetInstanceID(), _container.m_inventory, _contentsLoaded, _loadWasPartial);
 
+            if (!SidecarStore.IsServerAuthority)
+            {
+                // Saving here would write the handful of items currently paged in over the
+                // whole chest. Mutations travel as explicit operations instead.
+                return;
+            }
+
             // A partial load is more dangerous than a failed one: the chest looks populated,
             // just smaller, so nothing seems wrong until the truncated copy is written back
             // over the real contents.
@@ -412,13 +509,6 @@ namespace BottomlessChest.Core
                         "The stored copy is intact and left untouched.");
                 }
 
-                return;
-            }
-
-            if (!SidecarStore.IsServerAuthority)
-            {
-                // Saving here would write the handful of items currently paged in over the
-                // whole chest. Mutations travel as explicit operations instead.
                 return;
             }
 

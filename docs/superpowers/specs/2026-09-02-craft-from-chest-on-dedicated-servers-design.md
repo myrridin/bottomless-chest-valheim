@@ -1,9 +1,126 @@
 # Craft from chest on dedicated servers
 
-**Status:** design, not yet implemented
-**Date:** 2026-09-02
-**Verified against:** ValheimPlus 0.9.17.1 (`Grantapher-ValheimPlus_Grantapher_Temporary`),
-Valheim 0.221.12, decompiled with `ilspycmd`. Line numbers below are from that decompile.
+**Status:** design; being implemented on `release-0.3.0` (index logic done)
+**Date:** 2026-09-02, re-derived 2026-09-14
+**Verified against:** first ValheimPlus 0.9.17.1 on Valheim 0.221.12; re-derived against
+ValheimPlus 10.1.2 on Valheim 1.0 (see below). Both decompiled with `ilspycmd`. Line numbers
+in the body are from the 0.9.17.1 decompile unless marked.
+
+## What changed with Valheim 1.0 and ValheimPlus 10.1.2
+
+The design holds. The seam is intact, and what moved is listed here. The implementation
+rulings that follow from it are in the plan's *Revision — 2026-09-14* section.
+
+- **The three hook points are unchanged** in body and parameter names. In 10.1.2:
+  - `GetNearbyChestItemsByContainerList` is at 1355;
+  - `RemoveItemFromChest(Container, ItemData, int)` at 1423;
+  - `RemoveItemFromChest(Container, string, int)` at 1455;
+  - `ConveyContainerToNetwork` at 1487.
+
+  The type is `ValheimPlus.InventoryAssistant`, internal. A new
+  `RemoveItemInAmountFromChests` (1249), used by stations, loops over `RemoveItemFromChest`,
+  so the write patches cover it.
+- **Removal ignores quality.** Both overloads match on `m_shared.m_name` alone, so the write
+  patches take any quality.
+- **Stations no longer run only on a client.** The *Non-goals* section below says every V+
+  station runs on a client. In 10.1.2 they run on whichever peer owns the station:
+  `Smelter_UpdateSmelter_Patch` (8674) returns unless `m_nview.IsOwner()`, and chests are found
+  by `GetNearbyChestsForMachine` (1167), which needs no local player. On a client that is this
+  design's problem, unchanged. Where the server owns the station, it also holds the chest's
+  real inventory, shared with any open session since 0.2.1, and the patches stay out of the way.
+- **The fourth seam is decided: forward the deposit.** 0.2.0 refuses these deposits on a
+  client (`ClientDepositGuard`), and V+ falls back to the ground. 0.3.0 forwards station output
+  to the server over dedicated messages, and refused deposits land on the ground at the chest.
+  Items from the player's own inventory are still refused: Place Stacks and V+'s new auto-stack
+  sweep (6060) deposit those through their own path.
+- **Index versions carry a session generation.** A session's version restarts at 0.
+- **A new risk, world level.** V+ counts only items at or above `Game.m_worldLevel`. The index
+  does not carry world level, so crafting from a bottomless chest is inert in a world whose world
+  level is above 0.
+
+## Revision — 2026-09-14 (2): the places ValheimPlus looks past the seam
+
+Found in B9 by the user's station tests and a sweep of every V+ call that touches a chest's
+inventory (10.1.2 line numbers). Approved by the user the same day; the plan's matching section
+is *Revision — 2026-09-14 (2)*.
+
+### What is wrong
+
+The three `InventoryAssistant` hooks cover requirement counts, building, normal crafting and
+every station pull through `RemoveItemFromChest`. On a client, V+ also asks a bottomless chest's
+*local* inventory - the last page the player saw, or nothing - in these places:
+
+| Site | Call on the chest's inventory | Effect |
+|---|---|---|
+| `Smelter_Spawn_Patch` 8657, `Beehive_RPC_Extract_Patch` 2787, `Beehive_UpdateBees_Transpiler` 2852, `SapCollector_UpdateTick_Patch` 3654, `Fermenter_DelayedTap_Transpiler` 5910 | `HaveItem(name)` then `AddItem` | Output goes to the wrong chest (observed: a smelter splitting bars) |
+| `CookingStation_FindCookableItem_Transpiler` 4164 | `HaveItem` gate before removal | Never pulls |
+| `Fermenter_SlowUpdate_Transpiler` 5835 | vanilla `Fermenter.FindCookableItem(inventory)` → `GetItem(name)` | Never pulls |
+| `Recipe_GetAmount_Transpiler` 3523 | `CountItems(name, q)`, `GetItem(name, q)` | Choose-one-ingredient recipes miss chest materials |
+| `InventoryGui_DoCrafting_Transpiler` 9482 | `CountItems(name, q) > 0` gate | Those recipes skip the chest when consuming |
+| `Fireplace_Interact_Transpiler` 4530 | `HaveItem`, then vanilla `Inventory.RemoveItem(name, 1)` on the chest | **Free fuel**: removed from the page, never from the server |
+| `AutoStackSweep.IsCandidate` 6370 | V+'s static `Inventory_StackAll_Patch.ContainsItemByName(inventory, name)` | Sweep targets judged from stale pages |
+
+And Place Stacks itself:
+
+- **No sweep from a bottomless chest.** `StackAllButtonPatch` skips `InventoryGui.OnStackAll`, so
+  `Inventory.StackAll` never runs and V+'s postfix never starts a sweep.
+- **Duplication.** `AutoStackSweep.Start` asks every candidate at once; each grant reaches
+  `StackAllPatch`, which offers the player's items to that chest. Offers are limited per chest
+  only, so two bottomless chests holding the same item both keep the same items. Live in 0.2.1.
+  User's ruling: fold the fix into 0.3.0, no hotfix.
+- **Timeout re-send.** Offers and single-item puts allow a re-send after 5 s without a reply; a
+  reply that was only slow means the server keeps both.
+- **World level.** V+ and vanilla count only items with `m_worldLevel >= Game.m_worldLevel` (the
+  World Level world modifier, 0-10). The index does not carry it and stand-ins are cloned from
+  templates carrying the prefab's value (almost certainly 0), so at world level 1+ crafting from
+  bottomless chests counts nothing.
+- **Cheated flag.** V+ marks smelter output cheated from `GetAllItems().Any(m_cheated)` (8801) and
+  the fermenter copies the pulled item's flag; pages and stand-ins are never cheated.
+
+### The design
+
+**A. Four vanilla `Inventory` queries answer from the index.** On a client, with
+`ValheimPlusBridge.Attached`, for an inventory belonging to a bottomless chest:
+
+- `HaveItem(string name, bool matchWorldLevel)` → any entry with that shared name, count > 0, and
+  world level at or above `Game.m_worldLevel` when matching.
+- `CountItems(string name, int quality, bool matchWorldLevel)` → the index total, same filters.
+- `GetItem(string name, int quality, bool isPrefabName)` → a stand-in item: template clone carrying
+  the entry's quality, world level, cheated flag and count, with `m_dropPrefab` set. Never a page
+  item.
+- `RemoveItem(string name, int amount, int itemQuality, bool worldLevelBased)` → a server take,
+  exactly as the existing removal hooks do.
+
+Patched once at the vanilla methods rather than at each V+ site: it covers every site above and
+any V+ adds later, and costs other inventories one hash lookup. The server side is untouched.
+
+**B. One Place Stacks intercept.** A prefix on `Inventory.StackAll(Inventory, bool)` for a client
+bottomless inventory replaces `StackAllButtonPatch` and `StackAllPatch`. The button, the use-key
+hold and V+'s sweep all reach it, and V+'s prefix and postfix still run, so the sweep starts from
+a bottomless chest too. An **optional** hook on V+'s `Inventory_StackAll_Patch.ContainsItemByName`
+answers sweep targeting by running V+'s own filter over stand-ins. It is outside the
+all-or-nothing set: if it cannot attach, only sweep targeting keeps today's behaviour.
+
+**C. One offer at a time, with reservations.** Client offers to different chests queue; the next
+goes out when the previous chest answers. Every item in flight - an offer's or a put's - is
+reserved until its reply and is never sent again. A timeout lets other items and chests proceed,
+never the reserved ones; a reply that never comes (a disconnect) leaves the item with the player.
+The server always answers: `Stacked` with none kept when no session opens, and a new `PutRefused`
+(message 18) wherever it declines a put.
+
+**Index entries** carry world level and the cheated flag: one entry per (prefab, quality, world
+level, cheated). `TakeByName` carries a minimum world level, `-1` for any: V+'s own removals ignore
+world level, so its hooks send `-1`; vanilla `RemoveItem(..., worldLevelBased: true)` sends
+`Game.m_worldLevel`. Both messages are unreleased, so their formats are free to change.
+
+**Messages follow vanilla's flag.** A reply shows vanilla's `$msg_stackall N` (items, not stacks)
+only when the offer was made with `StackAll(..., message: true)` - the use-key hold. The button
+shows nothing, as in vanilla, and V+ turns the flag off and shows its own sweep summary, which
+undercounts items that went into bottomless chests. The user chose one message over a correct
+count needing another V+ hook.
+
+**Accepted:** a free item when another consumer drains the last units of an item within the
+second before this client's index refreshes. It never overdraws the store and never loses items.
 
 ## Problem
 
@@ -183,3 +300,48 @@ Needs the game, and belongs in the dedicated-server pass:
    syncs by its own range rule. If ours is narrower, V+ sees a chest with no index and
    silently gets zero. The sync range must be at least V+'s configured `CraftFromChest.range`
    ceiling of 50m.
+
+## Revision — 2026-09-25 (3): any mod, not just ValheimPlus
+
+GitHub issue #3: a player using **NearbyCrafting** (IPA38, 1.2.1) cannot craft or build from a
+bottomless chest. Decompiled to `/mnt/c/valheim_mods/nearbycrafting/NearbyCrafting.cs`.
+
+### What it does, and why it already nearly works
+
+| What | Call | Covered by |
+|---|---|---|
+| Count for a requirement | `container.GetInventory().CountItems(name, quality, matchWorldLevel)` | `InventoryQueryPatches.CountItemsPatch` |
+| Pay for a craft or a build | `inventory.RemoveItem(name, amount, quality)` | `InventoryQueryPatches.RemoveByNamePatch` |
+| Mass quick-deposit | `targetInventory.MoveItemToThis(player, item, amount, x, y)` | `RemoteMovePatches.MovePart` |
+
+Every one is a vanilla method this mod already answers. Nothing about NearbyCrafting needs a
+hook of its own, which is the point of having patched vanilla rather than ValheimPlus's call
+sites.
+
+### Why it fails anyway
+
+Everything is gated on `ValheimPlusBridge.Attached`: `ChestContents.Resolve` refuses, and
+`BottomlessContainer.RefreshIndex` never asks the server for totals. With no ValheimPlus
+installed a bottomless chest answers every question with nothing.
+
+### The design: ask on demand
+
+- **A chest starts asking when something asks about it.** `ChestContents.Resolve` no longer
+  requires ValheimPlus; it marks the chest wanted, and `RefreshIndex` polls only chests marked
+  wanted within the last 30 seconds. A chest nobody asks about costs nothing - better than
+  today's blanket polling whenever ValheimPlus is present, and it eases D17.
+- **The first answer is empty.** Until the first summary arrives a count reads 0, for about a
+  second. Requirement panels re-query constantly, so it corrects itself; a craft in that instant
+  is simply not yet available. Stations already tolerate this: they retry every tick.
+- **Deposits follow the same rule.** `ClientDepositGuard` forwards to the server instead of
+  refusing whenever the chest is ours and the network is up, with or without ValheimPlus.
+- **ValheimPlus keeps its own switch.** `Attached` still governs the three hooks into
+  `InventoryAssistant` and the optional sweep-targeting hook, which are meaningless without it.
+- **Known limit:** one deposit is in flight at a time, so a mass deposit moves one stack per
+  press until deposits are queued the way offers are.
+
+Ships as **0.4.0**. It is a new capability, not a fix, and the version string should say so on
+the mod page. The cost is that `VersionStrictness.Minor` compares major and minor, so every
+client and the server must move together - a patch number would have let 0.3.x and 0.4.x mix,
+since this change is client-side only, but it would label a feature as a fix. The user chose the
+honest label (2026-09-25).

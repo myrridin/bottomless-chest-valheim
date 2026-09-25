@@ -62,8 +62,6 @@ namespace BottomlessChest.Filter
         /// <summary>How much of <see cref="_pendingPut"/> was offered; 0 means all of it.</summary>
         private static int _pendingPutAmount;
 
-        private static float _pendingPutSentAt;
-
         /// <summary>
         /// Last known stack count per chest, so a closed chest can still be judged empty.
         /// </summary>
@@ -435,6 +433,12 @@ namespace BottomlessChest.Filter
 
         private static int MaxScrollRow()
         {
+            // Must agree with ChestSession.Page, or the last row becomes unreachable.
+            if (_remote)
+            {
+                return GridPacker.LastPageRow(_matchCount, Width, PageSlots);
+            }
+
             var rows = TotalRows - RowsCarried;
             return rows < 0 ? 0 : rows;
         }
@@ -619,7 +623,7 @@ namespace BottomlessChest.Filter
         }
 
         /// <summary>Receives items the server has removed from the chest for us.</summary>
-        internal static void ApplyGranted(List<ItemDrop.ItemData> items)
+        internal static void ApplyGranted(List<ItemDrop.ItemData> items, bool dropOnArrival = false)
         {
             var player = Player.m_localPlayer?.GetInventory();
             if (player == null)
@@ -629,6 +633,28 @@ namespace BottomlessChest.Filter
 
             foreach (var item in items)
             {
+                if (dropOnArrival && item?.m_dropPrefab != null)
+                {
+                    // Where vanilla's Humanoid.DropItem puts a dragged-out item: just ahead of
+                    // the player, at chest height.
+                    // The rest is what Humanoid.DropItem does next: mark it as dropped by the
+                    // player so auto-pickup leaves it alone, and throw it forward. Without both
+                    // the item landed at the player's feet and was picked straight back up.
+                    var body = Player.m_localPlayer.transform;
+                    var dropped = ItemDrop.DropItem(item, item.m_stack, body.position + body.forward + body.up, body.rotation);
+                    if (dropped != null)
+                    {
+                        dropped.OnPlayerDrop();
+                        var rigidbody = dropped.GetComponent<Rigidbody>();
+                        if (rigidbody != null)
+                        {
+                            rigidbody.linearVelocity = (body.forward + Vector3.up) * (item.GetWeight() >= 300f ? 0.5f : 5f);
+                        }
+                    }
+
+                    continue;
+                }
+
                 if (!player.AddItem(item))
                 {
                     // Nowhere to put it: drop at the player's feet rather than lose it,
@@ -661,38 +687,42 @@ namespace BottomlessChest.Filter
                 inventory?.RemoveItem(_pendingPut);
             }
 
+            OfferQueue.Release(_pendingPut);
+            _pendingPut = null;
+            _pendingPutAmount = 0;
+        }
+
+        /// <summary>The server declined the put, so the item stays and may be offered again.</summary>
+        internal static void ApplyPutRefused()
+        {
+            if (_pendingPut != null)
+            {
+                OfferQueue.Release(_pendingPut);
+            }
+
             _pendingPut = null;
             _pendingPutAmount = 0;
         }
 
         /// <summary>
-        /// Items offered to a chest and awaiting the server's answer.
+        /// Place Stacks offers, one chest at a time, with every item in flight reserved.
         /// </summary>
         /// <remarks>
-        /// Deliberately not cleared when the chest window closes. Holding the use key
-        /// stacks and then closes the window a moment later, so tying this to the view meant
-        /// the confirmation arrived with nothing to act on - the server kept the items and
-        /// the player kept them too. Duplication, from exactly the state the authoritative
-        /// round trip was supposed to prevent.
+        /// Not cleared when the window closes: holding the use key stacks and closes the window a
+        /// moment later, and a reply with nothing to act on once let the server keep the items
+        /// while the player kept them too. Cleared when the local player changes, which is what
+        /// leaving a world looks like from here.
+        ///
+        /// One chest at a time replaced one offer per chest. ValheimPlus's sweep asks every
+        /// nearby chest at once, and two bottomless chests that both held an item each kept the
+        /// same offered stack. Queued offers still reach every chest - each is built from what
+        /// the player is still carrying when its turn comes.
         /// </remarks>
-        /// <summary>
-        /// Items offered to each chest and awaiting that chest's answer, keyed by store.
-        /// </summary>
-        /// <remarks>
-        /// Per chest rather than one at a time. The guard exists because the server answers
-        /// with positions into the offer, so two offers to the *same* chest would make the
-        /// first answer name the wrong items - offers to different chests are independent.
-        /// A single global guard also broke ValheimPlus's stack-to-nearby-chests, which
-        /// loops over containers and would have reached only the first of ours.
-        /// </remarks>
-        private static readonly Dictionary<string, PendingOffer> Offers =
-            new Dictionary<string, PendingOffer>(System.StringComparer.Ordinal);
+        private static readonly Logic.OfferQueue<ItemDrop.ItemData> OfferQueue =
+            new Logic.OfferQueue<ItemDrop.ItemData>(OfferTimeoutSeconds);
 
-        private sealed class PendingOffer
-        {
-            internal List<ItemDrop.ItemData> Items;
-            internal float SentAt;
-        }
+        private static Player _offerPlayer;
+        private static int _offersPumpedFrame = -1;
 
         private static float _lastPageRequestAt;
         private static bool _pageRequestPending;
@@ -731,87 +761,138 @@ namespace BottomlessChest.Filter
         private const float OfferTimeoutSeconds = 5f;
 
         /// <summary>
-        /// Offers the player's stackable items to a chest, open or not.
+        /// Queues the player's stackable items to be offered to a chest, open or not.
         /// </summary>
+        /// <param name="message">
+        /// Vanilla's <c>StackAll</c> flag: true for the use-key hold, false for the button, and
+        /// turned off by ValheimPlus when its sweep reports instead.
+        /// </param>
         /// <remarks>
-        /// Takes the store id rather than reading the open view, because depositing by
-        /// holding the use key happens against a closed chest.
+        /// Takes the store id rather than reading the open view, because depositing by holding
+        /// the use key happens against a closed chest.
         /// </remarks>
-        internal static bool RequestStackAll(string storeId)
+        internal static bool RequestStackAll(string storeId, bool message)
         {
-            if (string.IsNullOrEmpty(storeId))
+            if (string.IsNullOrEmpty(storeId) || Player.m_localPlayer == null)
             {
                 return false;
             }
 
-            var player = Player.m_localPlayer?.GetInventory();
-            if (player == null)
-            {
-                return false;
-            }
-
-            // One offer per chest at a time, expiring so a lost answer cannot wedge it.
-            if (Offers.TryGetValue(storeId, out var inFlight)
-                && Time.realtimeSinceStartup - inFlight.SentAt < OfferTimeoutSeconds)
-            {
-                return true;
-            }
-
-            var offered = new List<ItemDrop.ItemData>();
-            foreach (var item in player.m_inventory)
-            {
-                if (item.m_shared.m_maxStackSize > 1 && !item.m_equipped)
-                {
-                    offered.Add(item);
-                }
-            }
-
-            Plugin.Log.LogDebug($"Offering {offered.Count} stackable item(s) to chest {storeId}.");
-
-            if (offered.Count == 0)
-            {
-                return true;
-            }
-
-            var scratch = new Inventory("offer", null, Width, 64);
-            scratch.m_inventory.AddRange(offered);
-
-            // Wrapped so the server reads it back with a direct add - see
-            // ChestRpc.Serialize for why Inventory.AddItem is not safe for these.
-            var payload = Storage.InventorySerializer.Save(scratch, "stack-all offer");
-            if (payload == null)
-            {
-                return false;
-            }
-
-            Offers[storeId] = new PendingOffer { Items = offered, SentAt = Time.realtimeSinceStartup };
-            Net.ChestRpc.StackAll(storeId, payload);
+            OfferQueue.Enqueue(storeId, message);
+            PumpOffers();
             return true;
         }
 
-        /// <summary>Drops the items the given chest confirmed it kept.</summary>
-        internal static void ApplyStacked(string storeId, List<int> keptIndices)
+        /// <summary>Sends whatever offers are ready. Driven by every loaded chest's Update.</summary>
+        internal static void TickOffers()
         {
-            var player = Player.m_localPlayer?.GetInventory();
-            if (player == null || !Offers.TryGetValue(storeId, out var offer))
+            if (_offersPumpedFrame == Time.frameCount)
             {
                 return;
             }
 
-            Offers.Remove(storeId);
+            _offersPumpedFrame = Time.frameCount;
+            PumpOffers();
+        }
 
-            foreach (var index in keptIndices)
+        private static void PumpOffers()
+        {
+            var local = Player.m_localPlayer;
+            if (local == null)
             {
-                if (index >= 0 && index < offer.Items.Count)
+                // Between death and respawn, or loading. Keep everything: a reply may still land.
+                return;
+            }
+
+            if (!ReferenceEquals(local, _offerPlayer))
+            {
+                // A different player object: another world or character. What was in flight
+                // belonged to one that no longer exists.
+                if (_offerPlayer != null)
                 {
-                    player.RemoveItem(offer.Items[index]);
+                    OfferQueue.Clear();
+                    _pendingPut = null;
+                    _pendingPutAmount = 0;
+                }
+
+                _offerPlayer = local;
+            }
+
+            var player = local.GetInventory();
+            if (player == null)
+            {
+                return;
+            }
+
+            while (OfferQueue.TryNext(Time.realtimeSinceStartup, out var storeId, out var message))
+            {
+                var offered = new List<ItemDrop.ItemData>();
+                foreach (var item in player.m_inventory)
+                {
+                    if (item.m_shared.m_maxStackSize > 1 && !item.m_equipped && !OfferQueue.IsReserved(item))
+                    {
+                        offered.Add(item);
+                    }
+                }
+
+                Plugin.Log.LogDebug($"Offering {offered.Count} stackable item(s) to chest {storeId}.");
+
+                if (offered.Count == 0)
+                {
+                    if (message)
+                    {
+                        local.Message(MessageHud.MessageType.Center, "$msg_stackall_none");
+                    }
+
+                    continue;
+                }
+
+                var scratch = new Inventory("offer", null, Width, 64);
+                scratch.m_inventory.AddRange(offered);
+
+                // Wrapped so the server reads it back with a direct add - see
+                // ChestRpc.Serialize for why Inventory.AddItem is not safe for these.
+                var payload = Storage.InventorySerializer.Save(scratch, "stack-all offer");
+                if (payload == null)
+                {
+                    continue;
+                }
+
+                OfferQueue.Sent(storeId, offered, message, Time.realtimeSinceStartup);
+                Net.ChestRpc.StackAll(storeId, payload);
+            }
+        }
+
+        /// <summary>Drops the items the given chest confirmed it kept, then sends the next offer.</summary>
+        internal static void ApplyStacked(string storeId, List<int> keptIndices)
+        {
+            if (!OfferQueue.Complete(storeId, out var offered, out var message))
+            {
+                return;
+            }
+
+            var player = Player.m_localPlayer?.GetInventory();
+            var moved = 0;
+            if (player != null)
+            {
+                foreach (var index in keptIndices)
+                {
+                    if (index >= 0 && index < offered.Count)
+                    {
+                        moved += offered[index].m_stack;
+                        player.RemoveItem(offered[index]);
+                    }
                 }
             }
 
-            if (keptIndices.Count > 0 && Player.m_localPlayer != null)
+            // Vanilla's message, and only where vanilla would show one.
+            if (message && Player.m_localPlayer != null)
             {
-                Player.m_localPlayer.Message(MessageHud.MessageType.Center, $"$msg_added {keptIndices.Count}");
+                Player.m_localPlayer.Message(
+                    MessageHud.MessageType.Center, moved > 0 ? $"$msg_stackall {moved}" : "$msg_stackall_none");
             }
+
+            PumpOffers();
         }
 
         /// <summary>
@@ -845,7 +926,8 @@ namespace BottomlessChest.Filter
         /// the whole stack. Take All and an ordinary click leave it null and take everything;
         /// only a split drag fills it in.
         /// </remarks>
-        internal static void RequestTake(IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null)
+        internal static void RequestTake(
+            IReadOnlyList<int> pageSlots, IReadOnlyList<int> amounts = null, bool dropOnArrival = false)
         {
             if (!_remote || pageSlots.Count == 0)
             {
@@ -864,7 +946,7 @@ namespace BottomlessChest.Filter
                 $"Requesting {absolute.Count} item(s) from chest {_remoteStoreId} at v{_version}, " +
                 $"row {_scrollRow} (first index {(absolute.Count > 0 ? absolute[0] : -1)}).");
 
-            Net.ChestRpc.Take(_remoteStoreId, _version, absolute, amounts);
+            Net.ChestRpc.Take(_remoteStoreId, _version, absolute, amounts, dropOnArrival);
         }
 
         /// <summary>
@@ -882,8 +964,20 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
-            // One at a time, but never wedged: a lost answer frees the slot after a while.
-            if (_pendingPut != null && Time.realtimeSinceStartup - _pendingPutSentAt < OfferTimeoutSeconds)
+            // One put at a time, and no timeout. Accepted carries no identity, so a second put
+            // sent before the first is answered would let the first answer remove the wrong item;
+            // and re-sending an item whose answer was only slow is how both copies got kept. The
+            // server always answers, so only a disconnect leaves this set, and the player keeps
+            // the item.
+            if (_pendingPut != null || OfferQueue.IsReserved(item))
+            {
+                return false;
+            }
+
+            // Nothing is marked pending for a message that cannot be sent: ChestRpc drops sends
+            // silently before the RPC exists, and a put recorded then would never be answered
+            // and would refuse every later deposit for the rest of the session.
+            if (!Net.ChestRpc.Ready)
             {
                 return false;
             }
@@ -915,7 +1009,7 @@ namespace BottomlessChest.Filter
 
             _pendingPut = item;
             _pendingPutAmount = partial ? offered : 0;
-            _pendingPutSentAt = Time.realtimeSinceStartup;
+            OfferQueue.Reserve(item);
             Net.ChestRpc.Put(_remoteStoreId, payload);
             return true;
         }

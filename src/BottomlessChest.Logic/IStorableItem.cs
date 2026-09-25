@@ -35,6 +35,12 @@ namespace BottomlessChest.Logic
 
         int Quality { get; }
 
+        /// <summary>The world level the item was made at. Vanilla counts only items at or above the world's.</summary>
+        int WorldLevel { get; }
+
+        /// <summary>Whether the item came from a cheat. Carried so stations can mark what they make from it.</summary>
+        bool Cheated { get; }
+
         int Variant { get; }
 
         /// <summary>Serialized per-instance data, or null. Two items with different custom data are different items.</summary>

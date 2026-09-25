@@ -59,8 +59,63 @@ namespace BottomlessChest.Core
         /// </remarks>
         internal bool ReadOnly { get; set; }
 
-        /// <summary>Bumped on every change, so clients can detect they acted on stale data.</summary>
+        /// <summary>
+        /// Bumped whenever an item's position in the order may have moved, so a client quoting
+        /// a page index can be told it is stale.
+        /// </summary>
+        /// <remarks>
+        /// Not bumped when only a count changes in place. A ValheimPlus kiln takes wood from the
+        /// chest every tick; bumping on each of those made every take the player tried while it
+        /// ran look stale, and each was refused. An index still names the same stack after its
+        /// count drops, and a take is measured against the real stack, never the client's.
+        /// </remarks>
         internal long Version { get; private set; }
+
+        /// <summary>Bumped on every change at all, counts included. What the index is keyed on.</summary>
+        internal long ContentsVersion { get; private set; }
+
+        /// <summary>
+        /// Which session this is, so a summary can be ordered against one from an earlier
+        /// session of the same chest.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Version"/> starts from zero in every session, and a chest gets a new
+        /// session each time it is reopened or released idle. Seeded from the clock so it keeps
+        /// rising across a server restart.
+        /// </remarks>
+        internal long Generation { get; } = System.Threading.Interlocked.Increment(ref _lastGeneration);
+
+        private static long _lastGeneration = System.DateTime.UtcNow.Ticks;
+
+        private ChestIndex _index;
+
+        /// <summary>
+        /// Totals per item type, for another mod to query from a client.
+        /// </summary>
+        /// <remarks>
+        /// Rebuilt only when the contents have changed since the last build. Clients ask about
+        /// every chest they can see once a second, and a rebuild walks the whole chest.
+        /// </remarks>
+        internal ChestIndex Index
+        {
+            get
+            {
+                if (_index == null || _index.Version != ContentsVersion)
+                {
+                    _index = ChestIndex.From(Generation, ContentsVersion, Adapt(Inventory.m_inventory));
+                }
+
+                return _index;
+            }
+        }
+
+        private static IEnumerable<IStorableItem> Adapt(List<ItemDrop.ItemData> items)
+        {
+            foreach (var item in items)
+            {
+                yield return new ItemAdapter(item);
+            }
+        }
 
         /// <summary>Row the client was last shown, so a refresh can hold its place.</summary>
         internal int LastScrollRow { get; private set; }
@@ -93,12 +148,35 @@ namespace BottomlessChest.Core
             _orderDirty = true;
         }
 
+        /// <summary>Records a count changing in place: nothing moved, so no page is stale.</summary>
+        internal void TouchCounts()
+        {
+            ContentsVersion++;
+            _weightDirty = true;
+        }
+
         internal void Touch()
         {
             Version++;
+            ContentsVersion++;
             _orderDirty = true;
             _weightDirty = true;
+
+            // Only once something outside the session has changed this chest, and so may again.
+            // A session nobody else touches never pays for the walk.
+            if (_trackingMembership)
+            {
+                _membership = ReferenceFingerprint.Of(Inventory.m_inventory);
+            }
         }
+
+        /// <summary>
+        /// Which stacks the chest held, and in what order, after the last change this session
+        /// knows about. See <see cref="OnExternalChange"/>.
+        /// </summary>
+        private ulong _membership;
+
+        private bool _trackingMembership;
 
         /// <summary>
         /// Weight of everything the chest holds.
@@ -130,7 +208,8 @@ namespace BottomlessChest.Core
         {
             EnsureOrder();
 
-            var maxRow = Mathf.Max(0, GridPacker.RowsNeeded(_ordered.Count, ChestView.Width) - (ChestView.VisibleRows - 1));
+            // Must agree with ChestView.MaxScrollRow on the client, or the last row becomes unreachable.
+            var maxRow = GridPacker.LastPageRow(_ordered.Count, ChestView.Width, ChestView.PageSlots);
             LastScrollRow = Mathf.Clamp(scrollRow, 0, maxRow);
 
             var page = new List<ItemDrop.ItemData>(count);
@@ -203,6 +282,75 @@ namespace BottomlessChest.Core
             if (taken.Count > 0)
             {
                 Touch();
+            }
+
+            return taken;
+        }
+
+        /// <summary>
+        /// Removes up to <paramref name="amount"/> of an item by prefab name, and reports how
+        /// much it actually took.
+        /// </summary>
+        /// <remarks>
+        /// Another mod has already been told these items were consumed; this is the server
+        /// making it true, and it never takes more than the chest holds. Matches items the way
+        /// <see cref="ItemAdapter.ItemId"/> names them, since that is what the index was built
+        /// from. A negative quality means any.
+        ///
+        /// Keeps the open-stack index honest the same way <see cref="Take"/> does: a stack
+        /// emptied is forgotten, a stack left part-full becomes the one the next deposit fills.
+        /// </remarks>
+        /// <param name="minWorldLevel">Only items at or above this world level; -1 for any.</param>
+        internal int RemoveByName(string itemId, int quality, int amount, int minWorldLevel = -1)
+        {
+            if (string.IsNullOrEmpty(itemId) || amount <= 0)
+            {
+                return 0;
+            }
+
+            var items = Inventory.m_inventory;
+            var taken = 0;
+            var removedStack = false;
+
+            for (var i = items.Count - 1; i >= 0 && taken < amount; i--)
+            {
+                var item = items[i];
+                if (item == null
+                    || new ItemAdapter(item).ItemId != itemId
+                    || (quality >= 0 && item.m_quality != quality)
+                    || (minWorldLevel >= 0 && item.m_worldLevel < minWorldLevel))
+                {
+                    continue;
+                }
+
+                var from = item.m_stack < amount - taken ? item.m_stack : amount - taken;
+                if (from <= 0)
+                {
+                    continue;
+                }
+
+                item.m_stack -= from;
+                taken += from;
+
+                if (item.m_stack <= 0)
+                {
+                    items.RemoveAt(i);
+                    Forget(item);
+                    removedStack = true;
+                }
+                else
+                {
+                    Reopen(item);
+                }
+            }
+
+            if (removedStack)
+            {
+                Touch();
+            }
+            else if (taken > 0)
+            {
+                TouchCounts();
             }
 
             return taken;
@@ -321,7 +469,8 @@ namespace BottomlessChest.Core
 
                 if (item.m_stack <= 0)
                 {
-                    Touch();
+                    // Wholly absorbed into a stack already there: a count changed, nothing moved.
+                    TouchCounts();
                     return;
                 }
             }
@@ -395,9 +544,29 @@ namespace BottomlessChest.Core
         /// And the order may have shifted under a page a client is holding, so the version is
         /// bumped: that client's next take is refused as stale and re-paged, rather than
         /// taking whatever now sits at the index it quoted.
+        ///
+        /// Unless only counts changed. A ValheimPlus station running on the machine that holds
+        /// the chest - a player-hosted server near the host, a dedicated server near the world's
+        /// centre - takes from the real inventory and saves, once a second. Treating each of
+        /// those as a reshuffle refused every take a remote player made while it ran, and walked
+        /// the chest to rebuild the index each tick. So the stacks held, and their order, are
+        /// fingerprinted after every change the session knows about: if they are the same now,
+        /// every index still names the same stack, and this is a count change like
+        /// <see cref="RemoveByName"/>'s. The open-stack index stays usable too: a stack it names
+        /// is still in the chest, and one that filled up is simply not merged into.
+        ///
+        /// The first outside change is always handled in full, since there is no fingerprint to
+        /// compare against yet; and any doubt falls back to the full path, which is only slower.
         /// </remarks>
         internal void OnExternalChange()
         {
+            var membership = ReferenceFingerprint.Of(Inventory.m_inventory);
+            if (_trackingMembership && membership == _membership)
+            {
+                TouchCounts();
+                return;
+            }
+
             _openStacks.Clear();
 
             foreach (var item in Inventory.m_inventory)
@@ -417,6 +586,9 @@ namespace BottomlessChest.Core
 
             _consolidated = true;
             Touch();
+
+            _trackingMembership = true;
+            _membership = membership;
         }
 
         private static bool SameItemsInOrder(Inventory a, Inventory b)

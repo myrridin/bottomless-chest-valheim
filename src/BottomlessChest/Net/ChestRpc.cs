@@ -29,6 +29,68 @@ namespace BottomlessChest.Net
 
         internal static bool Ready => _rpc != null;
 
+        /// <summary>
+        /// The latest summary of each chest this client can see. Empty on the server authority,
+        /// which holds the chests themselves.
+        /// </summary>
+        internal static readonly Logic.ChestIndexCache Indexes = new Logic.ChestIndexCache();
+
+        /// <summary>
+        /// Hands the server an item another mod put into a chest this client only pages.
+        /// </summary>
+        internal static void DepositForward(string storeId, byte[] itemBytes)
+        {
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.DepositForward);
+            package.Write(storeId);
+            package.Write(itemBytes);
+            ToServer(package);
+        }
+
+        /// <summary>
+        /// Tells the server another mod consumed from a chest, against the index version it
+        /// acted on.
+        /// </summary>
+        /// <param name="minWorldLevel">Take only items at or above this world level; -1 for any.</param>
+        internal static void TakeByName(string storeId, long version, string itemId, int quality, int amount, int minWorldLevel = -1)
+        {
+            if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(itemId) || amount <= 0 || !Ready)
+            {
+                return;
+            }
+
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.TakeByName);
+            package.Write(storeId);
+            package.Write(version);
+            package.Write(itemId);
+            package.Write(quality);
+            package.Write(minWorldLevel);
+            package.Write(amount);
+            ToServer(package);
+        }
+
+        /// <summary>
+        /// Asks the server for a summary of a chest, quoting the one already held so an
+        /// unchanged chest costs no reply.
+        /// </summary>
+        internal static void RequestIndex(string storeId)
+        {
+            if (string.IsNullOrEmpty(storeId) || !Ready)
+            {
+                return;
+            }
+
+            var held = Indexes.TryGet(storeId, out var index) ? index : null;
+
+            var package = new ZPackage();
+            package.Write((int)ChestMessage.IndexRequest);
+            package.Write(storeId);
+            package.Write(held?.Generation ?? 0L);
+            package.Write(held?.Version ?? -1L);
+            ToServer(package);
+        }
+
         internal static void Register()
         {
             _rpc = NetworkManager.Instance.AddRPC(RpcName, OnServerReceive, OnClientReceive);
@@ -74,8 +136,13 @@ namespace BottomlessChest.Net
         /// rather than sending two runs keeps a mismatched count from silently pairing the
         /// wrong amount with the wrong item.
         /// </remarks>
+        /// <param name="dropOnArrival">
+        /// Drop what is granted on the ground rather than into the inventory - an item dragged
+        /// out of the window onto the world, as vanilla would.
+        /// </param>
         internal static void Take(
-            string storeId, long version, IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null)
+            string storeId, long version, IReadOnlyList<int> indices, IReadOnlyList<int> amounts = null,
+            bool dropOnArrival = false)
         {
             var package = new ZPackage();
             package.Write((int)ChestMessage.Take);
@@ -88,6 +155,7 @@ namespace BottomlessChest.Net
                 package.Write(amounts == null || i >= amounts.Count ? 0 : amounts[i]);
             }
 
+            package.Write(dropOnArrival);
             ToServer(package);
         }
 
@@ -152,6 +220,53 @@ namespace BottomlessChest.Net
             var kind = (ChestMessage)package.ReadInt();
             var storeId = package.ReadString();
 
+            Handle(sender, kind, storeId, package);
+            yield break;
+        }
+
+        /// <summary>
+        /// Answers one message from a client.
+        /// </summary>
+        /// <remarks>
+        /// Outside the coroutine, and wrapped, because a handler that throws inside an iterator
+        /// simply stops: the client is left waiting for an answer that will never come, and a
+        /// client waiting on a deposit refuses every later one. Anything that throws is reported
+        /// as a refusal for the messages that promise a reply.
+        /// </remarks>
+        private static void Handle(long sender, ChestMessage kind, string storeId, ZPackage package)
+        {
+            try
+            {
+                HandleMessage(sender, kind, storeId, package);
+            }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.LogError($"Failed to handle {kind} for chest {storeId}: {ex}");
+
+                try
+                {
+                    if (kind == ChestMessage.Put)
+                    {
+                        SendPutRefused(sender, storeId);
+                    }
+                    else if (kind == ChestMessage.StackAll)
+                    {
+                        var none = new ZPackage();
+                        none.Write((int)ChestMessage.Stacked);
+                        none.Write(storeId);
+                        none.Write(0);
+                        _rpc.SendPackage(sender, none);
+                    }
+                }
+                catch (System.Exception replyEx)
+                {
+                    Plugin.Log.LogError($"Could not even refuse {kind} for chest {storeId}: {replyEx}");
+                }
+            }
+        }
+
+        private static void HandleMessage(long sender, ChestMessage kind, string storeId, ZPackage package)
+        {
             switch (kind)
             {
                 case ChestMessage.Open:
@@ -192,6 +307,10 @@ namespace BottomlessChest.Net
                         indices.Add(package.ReadInt());
                         amounts.Add(package.ReadInt());
                     }
+
+                    // Echoed back with the items, so the client knows where they go without
+                    // having to match replies to requests.
+                    var dropOnArrival = package.ReadBool();
 
                     if (!ChestSessions.TryGet(storeId, out var session))
                     {
@@ -248,6 +367,7 @@ namespace BottomlessChest.Net
                     granted.Write((int)ChestMessage.Granted);
                     granted.Write(storeId);
                     granted.Write(takenBytes);
+                    granted.Write(dropOnArrival);
                     _rpc.SendPackage(sender, granted);
 
                     // Counts only, not a page: re-sending one would compact the remaining
@@ -261,14 +381,18 @@ namespace BottomlessChest.Net
                 {
                     var itemBytes = package.ReadByteArray();
 
+                    // Every path that does not accept answers PutRefused. The client holds the
+                    // item reserved until it hears back, so silence would strand it.
                     if (!ChestSessions.TryGet(storeId, out var session))
                     {
+                        SendPutRefused(sender, storeId);
                         break;
                     }
 
                     if (RefusesToChange(session, sender, "a deposit"))
                     {
                         // Anything but Accepted leaves the item with the sender.
+                        SendPutRefused(sender, storeId);
                         SendPage(sender, session, -1);
                         break;
                     }
@@ -283,6 +407,7 @@ namespace BottomlessChest.Net
                             $"Could not read a deposit into chest {storeId}; refusing it so the " +
                             "sender keeps the item.");
 
+                        SendPutRefused(sender, storeId);
                         SendPage(sender, session, -1);
                         break;
                     }
@@ -383,6 +508,13 @@ namespace BottomlessChest.Net
                     var session = ChestSessions.Acquire(storeId);
                     if (session == null)
                     {
+                        // Answered even so: the client sends one offer at a time and holds
+                        // every offered item until this chest replies.
+                        var none = new ZPackage();
+                        none.Write((int)ChestMessage.Stacked);
+                        none.Write(storeId);
+                        none.Write(0);
+                        _rpc.SendPackage(sender, none);
                         break;
                     }
 
@@ -460,9 +592,103 @@ namespace BottomlessChest.Net
                 case ChestMessage.Close:
                     ChestSessions.Release(storeId);
                     break;
-            }
 
-            yield break;
+                case ChestMessage.IndexRequest:
+                {
+                    var heldGeneration = package.ReadLong();
+                    var heldVersion = package.ReadLong();
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
+                    {
+                        break;
+                    }
+
+                    // Every client asks about every chest it can see, once a second. Answering
+                    // an unchanged chest would rebuild and resend it for nothing.
+                    if (session.Generation == heldGeneration && session.ContentsVersion == heldVersion)
+                    {
+                        break;
+                    }
+
+                    SendIndex(sender, session);
+                    break;
+                }
+
+                case ChestMessage.DepositForward:
+                {
+                    // Not Put. Put needs a session somebody already opened, so a closed chest
+                    // would drop the message and the item with it; and its Accepted reply makes
+                    // the client delete the player's own in-flight deposit.
+                    var itemBytes = package.ReadByteArray();
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null
+                        || RefusesToChange(session, sender, "a deposit from another mod")
+                        || !TryDeserialize(itemBytes, out var deposited)
+                        || deposited.Count == 0)
+                    {
+                        // The sender already told the other mod the item went in. Sending it back
+                        // is the only way it still ends up somewhere a player can pick it up.
+                        Plugin.Log.LogWarning(
+                            $"Could not keep an item forwarded into chest {storeId}; sending it back " +
+                            "to be dropped on the ground.");
+
+                        var refused = new ZPackage();
+                        refused.Write((int)ChestMessage.DepositRefused);
+                        refused.Write(storeId);
+                        refused.Write(itemBytes);
+                        _rpc.SendPackage(sender, refused);
+                        break;
+                    }
+
+                    foreach (var item in deposited)
+                    {
+                        session.Deposit(item);
+                    }
+
+                    ChestSessions.Persist(session);
+                    break;
+                }
+
+                case ChestMessage.TakeByName:
+                {
+                    // Read, and deliberately not used to refuse: the client has already
+                    // answered the other mod and the craft has happened. The fresh index sent
+                    // back is what reconciles the two sides.
+                    package.ReadLong();
+                    var itemId = package.ReadString();
+                    var quality = package.ReadInt();
+                    var minWorldLevel = package.ReadInt();
+                    var amount = package.ReadInt();
+
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
+                    {
+                        break;
+                    }
+
+                    if (!RefusesToChange(session, sender, "a removal by another mod"))
+                    {
+                        // What is actually there, never what was claimed.
+                        if (session.RemoveByName(itemId, quality, amount, minWorldLevel) > 0)
+                        {
+                            ChestSessions.Persist(session);
+                        }
+                    }
+
+                    SendIndex(sender, session);
+                    break;
+                }
+            }
+        }
+
+        private static void SendPutRefused(long peer, string storeId)
+        {
+            var refused = new ZPackage();
+            refused.Write((int)ChestMessage.PutRefused);
+            refused.Write(storeId);
+            _rpc.SendPackage(peer, refused);
         }
 
         /// <summary>Sends fresh totals without disturbing the layout the client is showing.</summary>
@@ -477,6 +703,81 @@ namespace BottomlessChest.Net
             counts.Write(session.TotalWeight);
 
             _rpc.SendPackage(peer, counts);
+        }
+
+        /// <summary>Drops items on the ground at a chest, or at the player if the chest is gone.</summary>
+        private static void DropNear(string storeId, List<ItemDrop.ItemData> items)
+        {
+            if (items == null || items.Count == 0)
+            {
+                return;
+            }
+
+            UnityEngine.Vector3? at = null;
+            foreach (var chest in BottomlessContainer.Loaded)
+            {
+                if (chest != null && chest.CurrentStoreId == storeId)
+                {
+                    at = chest.transform.position;
+                    break;
+                }
+            }
+
+            if (at == null && Player.m_localPlayer != null)
+            {
+                at = Player.m_localPlayer.transform.position;
+            }
+
+            if (at == null)
+            {
+                Plugin.Log.LogError(
+                    $"Nowhere to drop {items.Count} item(s) sent back from chest {storeId}; they are lost.");
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                if (item?.m_dropPrefab == null)
+                {
+                    continue;
+                }
+
+                ItemDrop.DropItem(item, item.m_stack, at.Value + UnityEngine.Vector3.up, UnityEngine.Quaternion.identity);
+            }
+        }
+
+        /// <summary>Sends a chest's totals per item type, for another mod to query.</summary>
+        private static void SendIndex(long peer, ChestSession session)
+        {
+            var index = session.Index;
+
+            var reply = new ZPackage();
+            reply.Write((int)ChestMessage.IndexResult);
+            reply.Write(session.StoreId);
+            reply.Write(index.Generation);
+            reply.Write(index.Version);
+
+            // A read-only chest refuses every removal. Advertising its contents would let a
+            // client answer another mod from them, be refused, receive the same totals back,
+            // and do it again - materials for nothing, indefinitely. Nothing to offer instead.
+            if (session.ReadOnly)
+            {
+                reply.Write(0);
+                _rpc.SendPackage(peer, reply);
+                return;
+            }
+
+            reply.Write(index.Entries.Count);
+            foreach (var entry in index.Entries)
+            {
+                reply.Write(entry.ItemId);
+                reply.Write(entry.Quality);
+                reply.Write(entry.WorldLevel);
+                reply.Write(entry.Cheated);
+                reply.Write(entry.Count);
+            }
+
+            _rpc.SendPackage(peer, reply);
         }
 
         /// <summary>Sends one window of items. A negative row means "keep the current one".</summary>
@@ -532,7 +833,7 @@ namespace BottomlessChest.Net
             return true;
         }
 
-        private static byte[] Serialize(List<ItemDrop.ItemData> items)
+        internal static byte[] Serialize(List<ItemDrop.ItemData> items)
         {
             var scratch = new Inventory("page", null, Filter.ChestView.Width, Filter.ChestView.VisibleRows);
             scratch.m_inventory.AddRange(items);
@@ -636,7 +937,10 @@ namespace BottomlessChest.Net
                     // The one receive path where a quiet failure is permanent: the server has
                     // already removed these and persisted without them, so whatever does not
                     // read here is gone. Whatever does read is still applied.
-                    if (!TryDeserialize(package.ReadByteArray(), out var items))
+                    var readable = TryDeserialize(package.ReadByteArray(), out var items);
+                    var dropOnArrival = package.ReadBool();
+
+                    if (!readable)
                     {
                         Plugin.Log.LogError(
                             $"Could not fully read the items granted from chest {storeId}; " +
@@ -645,7 +949,7 @@ namespace BottomlessChest.Net
                             "a content mod the server has.");
                     }
 
-                    Filter.ChestView.ApplyGranted(items);
+                    Filter.ChestView.ApplyGranted(items, dropOnArrival);
                     break;
                 }
 
@@ -663,6 +967,45 @@ namespace BottomlessChest.Net
                 case ChestMessage.Accepted:
                     Filter.ChestView.ApplyAccepted();
                     break;
+
+                case ChestMessage.PutRefused:
+                    Filter.ChestView.ApplyPutRefused();
+                    break;
+
+                case ChestMessage.DepositRefused:
+                {
+                    // Deserialized copies, so nothing here is still referenced by the mod that
+                    // made them. Whatever does not read is lost, and says so.
+                    if (!TryDeserialize(package.ReadByteArray(), out var items))
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not fully read the items chest {storeId} sent back; " +
+                            $"{items.Count} recovered.");
+                    }
+
+                    DropNear(storeId, items);
+                    break;
+                }
+
+                case ChestMessage.IndexResult:
+                {
+                    var generation = package.ReadLong();
+                    var version = package.ReadLong();
+                    var count = package.ReadInt();
+                    var items = new List<Logic.IStorableItem>(count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        var itemId = package.ReadString();
+                        var quality = package.ReadInt();
+                        var worldLevel = package.ReadInt();
+                        var cheated = package.ReadBool();
+                        var held = package.ReadInt();
+                        items.Add(new Logic.IndexedItem(itemId, quality, held, worldLevel, cheated));
+                    }
+
+                    Indexes.Put(storeId, Logic.ChestIndex.From(generation, version, items));
+                    break;
+                }
 
                 case ChestMessage.Stacked:
                 {
