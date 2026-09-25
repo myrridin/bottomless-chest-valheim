@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using BottomlessChest.Filter;
+using BottomlessChest.Storage;
 using HarmonyLib;
 
 namespace BottomlessChest.Core
@@ -77,6 +78,20 @@ namespace BottomlessChest.Core
             if (ChestView.IsRemotePage(destination))
             {
                 return ChestView.RequestPut(item, amount) ? Outcome.Sent : Outcome.Refused;
+            }
+
+            // Into a bottomless chest that is not the one on screen - a mod depositing into a
+            // closed chest, as NearbyCrafting's quick-deposit does. Vanilla would add it to this
+            // client's copy of a chest whose contents live on the server, and that copy is thrown
+            // away: the item left the player and was gone. Sent to the server instead, addressed
+            // to that chest; refused when it cannot be sent, which leaves the item where it is.
+            if (!SidecarStore.IsServerAuthority && destination != null
+                && InventoryCapacity.IsUnbounded(destination)
+                && BottomlessContainer.TryResolveInventory(destination, out var chest))
+            {
+                return ChestView.RequestPut(chest.CurrentStoreId, item, amount)
+                    ? Outcome.Sent
+                    : Outcome.Refused;
             }
 
             return Outcome.RunVanilla;

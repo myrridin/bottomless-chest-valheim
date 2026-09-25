@@ -38,7 +38,15 @@ namespace BottomlessChest.Core
             }
 
             __result = 0;
-            ChestView.RequestStackAll(chest.CurrentStoreId, message);
+
+            // The original still must not run: it would move the player's items into the page,
+            // which is discarded. But a refusal - a chest whose store id is not bound yet - would
+            // otherwise leave the button looking broken, so say what vanilla says.
+            if (!ChestView.RequestStackAll(chest.CurrentStoreId, message) && message && player != null)
+            {
+                player.Message(MessageHud.MessageType.Center, "$msg_stackall_none");
+            }
+
             return false;
         }
     }

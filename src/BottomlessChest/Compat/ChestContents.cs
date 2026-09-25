@@ -10,13 +10,14 @@ namespace BottomlessChest.Compat
     /// What a bottomless chest holds, answered on a client from its synced index.
     /// </summary>
     /// <remarks>
-    /// A client holds only the page on screen, or nothing. Everything that asks a bottomless
-    /// chest what it holds on ValheimPlus's behalf comes through here, so every answer agrees.
+    /// A client holds only the page on screen, or nothing. Everything that answers what a
+    /// bottomless chest holds comes through here, so every answer agrees - for ValheimPlus,
+    /// for craft-from-chest mods asking the vanilla methods, and for the game itself.
     /// </remarks>
     internal static class ChestContents
     {
         /// <summary>
-        /// Whether this inventory is a bottomless chest's on a client with the V+ integration on.
+        /// Whether this inventory belongs to a bottomless chest on a client.
         /// </summary>
         /// <returns>
         /// True when the caller must answer for the chest. <paramref name="index"/> is null until
@@ -28,11 +29,16 @@ namespace BottomlessChest.Compat
             storeId = null;
             index = null;
 
-            if (!InventoryCapacity.IsUnbounded(inventory) || Plugin.Degraded || !ValheimPlusBridge.Attached
+            if (!InventoryCapacity.IsUnbounded(inventory) || Plugin.Degraded
                 || SidecarStore.IsServerAuthority || !BottomlessContainer.TryResolveInventory(inventory, out var chest))
             {
                 return false;
             }
+
+            // Asking is what starts this chest keeping its totals current, and keeps it doing so.
+            // Any mod that asks the way the game does gets an answer; ValheimPlus is only the
+            // first one this was written for.
+            chest.MarkContentsWanted();
 
             storeId = chest.CurrentStoreId;
             if (!string.IsNullOrEmpty(storeId))
@@ -56,7 +62,12 @@ namespace BottomlessChest.Compat
         /// have given it - stack size, weight - which other mods may have adjusted; and at the
         /// quality, world level and cheat state the chest really holds.
         /// </remarks>
-        internal static ItemDrop.ItemData StandIn(IndexEntry entry)
+        /// <param name="clampToMaxStack">
+        /// Cap the stand-in at one vanilla stack. Answering <c>GetItem</c> must: vanilla hands
+        /// back one stack from the chest, never a total, and an oversized ItemData that escapes
+        /// into a player inventory is written to the vanilla save that way.
+        /// </param>
+        internal static ItemDrop.ItemData StandIn(IndexEntry entry, bool clampToMaxStack = false)
         {
             var template = ItemTemplates.For(entry.ItemId);
             if (template == null)
@@ -68,7 +79,8 @@ namespace BottomlessChest.Compat
             standIn.m_quality = entry.Quality;
             standIn.m_worldLevel = entry.WorldLevel;
             standIn.m_cheated = entry.Cheated;
-            standIn.m_stack = entry.Count;
+            var max = standIn.m_shared.m_maxStackSize;
+            standIn.m_stack = clampToMaxStack && max > 0 && entry.Count > max ? max : entry.Count;
 
             // Fermenter.RPC_AddItem names the item by its drop prefab.
             var prefab = ObjectDB.instance != null ? ObjectDB.instance.GetItemPrefab(entry.ItemId) : null;
@@ -78,6 +90,32 @@ namespace BottomlessChest.Compat
             }
 
             return standIn;
+        }
+
+        /// <summary>The item type of an indexed prefab, or None when it cannot be resolved.</summary>
+        internal static ItemDrop.ItemData.ItemType TypeOf(string itemId)
+        {
+            var template = ItemTemplates.For(itemId);
+            return template != null ? template.m_shared.m_itemType : ItemDrop.ItemData.ItemType.None;
+        }
+
+        /// <summary>
+        /// How many stacks an entry's total occupies, for vanilla's stacks-only counts.
+        /// </summary>
+        /// <remarks>
+        /// An estimate: the index carries totals, not how the server split them. A consolidated
+        /// chest holds full stacks and one remainder of each kind, which is what this computes.
+        /// </remarks>
+        internal static int StacksIn(IndexEntry entry)
+        {
+            var template = ItemTemplates.For(entry.ItemId);
+            var max = template != null ? template.m_shared.m_maxStackSize : 1;
+            if (max < 1)
+            {
+                max = 1;
+            }
+
+            return (entry.Count + max - 1) / max;
         }
 
         /// <summary>

@@ -71,6 +71,20 @@ namespace BottomlessChest.Settings
             RecipeRequirements = cfg.Bind("Crafting", "Requirements", DefaultRequirements,
                 "Build cost, as Item:Amount pairs separated by commas. Item names are prefab names, not display names.");
 
+            // Once per file, not once per launch. Running these every start meant a player who
+            // deliberately set the old cost or the old colours had them overwritten again on the
+            // next launch, with no way to keep them.
+            var applied = cfg.Bind("Advanced", "AppliedDefaultChanges", 0,
+                "Internal. Which of this mod's default changes have already been applied to this " +
+                "file, so they are applied once and never fight a value you chose. Do not edit.");
+
+            if (applied.Value >= 1)
+            {
+                return;
+            }
+
+            applied.Value = 1;
+
             // 0.3.0 made the chest cost what a wooden chest does. Players who never edited the
             // cost get the new one; anyone who set their own keeps it.
             var upgraded = Logic.ConfigDefaults.Upgrade(

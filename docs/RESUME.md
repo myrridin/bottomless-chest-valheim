@@ -302,6 +302,56 @@ has to be read with that in mind.
       - **Not yet deployed or tested in game** (the user was mid-test on the previous build).
         Task 5's list is in the plan; `/code-review` after.
 
+- [x] **A2-adjacent, answered 2026-09-25: craft-from-chest range is the mod's, not ours.** The
+      user saw materials counted from what seemed like 300 m. ValheimPlus gathers chests with
+      `Physics.OverlapSphere` around the crafting station, radius `[CraftFromChest] range`,
+      capped at 50 m (their config: 50, `checkFromWorkbench = true`); NearbyCrafting uses
+      `ContainerRange`, default 20 m, ceiling 100. Retested: the count came from a forgotten
+      base within range, updates live as a kiln consumes, and drops to zero a few metres past
+      the radius. No defect.
+
+- [ ] **0.4.0 (issue #3): craft from chest for any mod.** Branch `release-0.4.0`, plan
+      `docs/superpowers/plans/2026-09-25-craft-from-chest-for-any-mod.md`, spec revision (3).
+      NearbyCrafting counts with `Inventory.CountItems`, pays with `RemoveItem(string, …)` and
+      deposits with `MoveItemToThis` - all already answered; the only blocker was the ValheimPlus
+      gate. A chest now starts asking the server for its totals when something asks about it
+      (`MarkContentsWanted`, 30 s window) and deposits are forwarded for any mod (`d55c311`,
+      `494398f`, `e418747`).
+      - **Verified in game 2026-09-25** on Valheim 1.0.16, with V+ disabled on both sides:
+        NearbyCrafting counts, builds, crafts and F6-deposits from a bottomless chest; the chest
+        window, V+ stations and the no-mod baseline all still behave. Logs clean, no stale takes.
+      - **Review round (2026-09-25) found seven, all fixed in `c6f3f94`:** the stacked reply
+        releasing an offer with no player inventory (items in both places); an offer recorded in
+        flight before a send that `ToServer` can drop, wedging that chest for the session;
+        `GetItem` handing out an oversized stand-in and no answer for removing a stand-in by
+        reference; `CountItemsByName`/`CountItemsByType` unanswered; Place Stacks silent when it
+        could not queue; and two silent item-loss paths on drops.
+      - **Deposits into a chest nobody has open** were added after that review (`9aa9af2`): a put
+        is addressed to a chest by id and carries its own id that the answer echoes, so several
+        can be in flight. Before this, such a deposit destroyed the item - it went into the
+        client's copy of the chest and that copy is discarded; the hazard existed in 0.3.0 and
+        earlier for any mod that deposited into a closed bottomless chest.
+      - **Second review round** found seven more, all fixed in `6e7f255`: two sends claimed as
+        successful when the routing could drop them (a forwarded deposit destroyed, a paid-for
+        removal never made); a Place Stacks offer read loosely, so an unresolvable item shifted
+        the positions the reply names; a forwarded deposit that threw mid-keep vanishing; an
+        unanswered offer silently disabling Place Stacks; the default migrations re-running every
+        launch; and an unstackable deposit re-fragmenting the stacks after it.
+      - **Verified in game and tagged `v0.4.0`.** Gate: the four identifiers and the store read
+        path are identical to `v0.3.0`; 207 tests; package verified against the build.
+      - Known limit: a quick-deposit hotkey only offers kinds its own client can see in the
+        chest, which is the page it last looked at - see D18.
+
+- [ ] **D18. Mirror a closed chest's contents into its page on a client.** A client holds only
+      the page it last saw, so a mod reading a chest's inventory sees at most forty items -
+      NearbyCrafting's quick-deposit only offers kinds it can already see there, which is why it
+      moves nothing in a large chest until the player searches for that item. Filling a closed
+      chest's inventory with one stand-in per index entry would make every such mod correct
+      without a patch each, and would end the stale-page judgements ValheimPlus makes too.
+      The catch: stand-ins would then really be in `m_inventory`, so vanilla `RemoveItem(item)`
+      would succeed locally and the server would never hear - every removal path for a client
+      chest inventory has to be intercepted first. Its own design, review and test pass; 0.5.0.
+
 ### C. Requested by the user
 
 - [x] **C11. Default build cost → the wooden chest's.** Done in `39457f6`: `Wood:10`, read

@@ -450,7 +450,12 @@ namespace BottomlessChest.Core
             var max = item.m_shared.m_maxStackSize;
             if (max <= 1)
             {
-                Add(item);
+                // Its own stack, always, but the open-stack index is left alone. Add() drops the
+                // whole index because the restore path it serves cannot vouch for it; doing that
+                // here would re-fragment every stackable kind later in the same deposit, and a
+                // Place Stacks offer now carries unstackable items too.
+                Inventory.m_inventory.Add(item);
+                Touch();
                 return;
             }
 

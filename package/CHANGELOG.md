@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0
+
+**Craft-from-chest mods can use a bottomless chest**, not only ValheimPlus. Tested with
+NearbyCrafting.
+
+**Everyone on a server needs 0.4.0**, including the server; a 0.3.x client cannot join a 0.4.0
+server. Chests are stored exactly as before, so upgrading and going back are both safe.
+
+- Any mod that asks a chest what it holds the way the game does can now count a bottomless
+  chest's contents, pay from it for crafting and building, and deposit into it.
+- A chest asks the server for its totals only while something is asking about it, so a chest
+  nobody queries costs nothing. Before, that depended on having ValheimPlus installed.
+- **Fixed: items could be destroyed by a mod depositing into a closed bottomless chest.** The
+  item left your inventory and went into your own machine's copy of a chest whose contents live
+  on the server, and that copy is thrown away. This could happen on 0.3.0 and earlier too.
+- **Depositing into a chest you do not have open now works**, so quick-deposit hotkeys such as
+  NearbyCrafting's put items into bottomless chests. Each item stays with you until the server
+  confirms it arrived.
+- A mod that counts what it moved by reading your inventory straight afterwards may report
+  nothing deposited: the items leave a moment later, when the server answers. They do arrive.
+- **Known limit:** a quick-deposit hotkey only moves kinds of item it can see in the chest, and
+  your machine holds just the page you last looked at. In a large chest, search for an item once
+  and it will deposit from then on. Crafting, building and dragging items in are unaffected.
+
 ## 0.3.0
 
 **Crafting, building and stations can use a bottomless chest on a dedicated server**, with

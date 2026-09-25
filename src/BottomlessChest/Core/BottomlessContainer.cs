@@ -313,6 +313,23 @@ namespace BottomlessChest.Core
         /// <summary>When this client next asks the server for this chest's summary.</summary>
         private float _nextIndexAt = -1f;
 
+        /// <summary>Until when something has asked what this chest holds.</summary>
+        /// <remarks>
+        /// A chest asks the server for its totals only while another mod is asking about it.
+        /// Before 0.4.0 the trigger was "ValheimPlus is installed", which asked for every chest
+        /// in sight whether anything wanted it, and answered nothing at all for anyone else.
+        /// The window outlives a burst of questions - a crafting panel asks every frame, a
+        /// station every second - so it is not re-armed constantly, and lapses soon after the
+        /// questions stop.
+        /// </remarks>
+        private float _wantedUntil = -1f;
+
+        private const float WantedWindowSeconds = 30f;
+
+        /// <summary>Something asked what this chest holds, so keep its totals current.</summary>
+        internal void MarkContentsWanted() =>
+            _wantedUntil = UnityEngine.Time.unscaledTime + WantedWindowSeconds;
+
         /// <summary>The store last asked about, so the summary can be forgotten after the ZDO is gone.</summary>
         private string _indexedStoreId;
 
@@ -328,9 +345,10 @@ namespace BottomlessChest.Core
         /// </remarks>
         private void RefreshIndex()
         {
-            // Only when ValheimPlus is here to ask. Each request keeps the chest's session alive
-            // on the server, so polling for nobody would hold every nearby chest in its memory.
-            if (SidecarStore.IsServerAuthority || !Net.ChestRpc.Ready || !Compat.ValheimPlusBridge.Attached)
+            // Only while something is asking. Each request keeps the chest's session alive on
+            // the server, so polling for nobody would hold every nearby chest in its memory.
+            if (SidecarStore.IsServerAuthority || !Net.ChestRpc.Ready
+                || UnityEngine.Time.unscaledTime > _wantedUntil)
             {
                 return;
             }

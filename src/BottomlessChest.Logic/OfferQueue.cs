@@ -10,8 +10,14 @@ namespace BottomlessChest.Logic
     /// <remarks>
     /// A server keeps every offered item its chest already holds. Offers to two chests at once
     /// could both keep the same items, and a re-send after a slow reply could be kept twice.
-    /// So an offer waits for the previous chest's answer; every item in flight stays reserved
-    /// until its own answer; and a timeout only lets other chests and other items go ahead.
+    /// So an offer waits for the previous chest's answer, and every item in flight stays reserved
+    /// until its own answer arrives - a timeout lets other chests go ahead but never releases a
+    /// reservation, because the chest may have kept those items.
+    ///
+    /// An offer that is never answered therefore holds its items for good. That needs a reply
+    /// lost without a disconnect, since every server path answers and a disconnect clears this
+    /// queue with the player it belonged to; <see cref="OverdueCount"/> is how the mod notices
+    /// and says so rather than quietly stacking nothing.
     /// </remarks>
     public sealed class OfferQueue<TItem> where TItem : class
     {
@@ -133,6 +139,21 @@ namespace BottomlessChest.Logic
             items = flight.Items;
             message = flight.Message;
             return true;
+        }
+
+        /// <summary>Offers sent longer ago than the timeout and still unanswered.</summary>
+        public int OverdueCount(float now)
+        {
+            var overdue = 0;
+            foreach (var flight in _inFlight.Values)
+            {
+                if (now - flight.SentAt >= _timeout)
+                {
+                    overdue++;
+                }
+            }
+
+            return overdue;
         }
 
         public bool IsReserved(TItem item) => item != null && _reserved.ContainsKey(item);

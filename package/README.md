@@ -16,9 +16,10 @@ things again.
   not on the whole chest.
 - **Works on dedicated servers.** The server holds the contents and sends only what is on
   screen, so a huge chest costs no more to browse than a small one.
-- **Works with ValheimPlus.** Craft, build and repair from the chest, and let kilns, smelters,
-  fermenters, cooking stations and fires pull from it and put their output back, on a dedicated
-  server as well as in single-player.
+- **Works with craft-from-chest mods.** Count, craft, build and deposit from the chest with mods
+  like NearbyCrafting, and with ValheimPlus - which also lets kilns, smelters, fermenters,
+  cooking stations and fires pull from it and put their output back. On a dedicated server as
+  well as in single-player.
 
 ## Building one
 
