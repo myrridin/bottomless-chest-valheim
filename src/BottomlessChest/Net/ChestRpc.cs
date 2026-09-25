@@ -220,6 +220,53 @@ namespace BottomlessChest.Net
             var kind = (ChestMessage)package.ReadInt();
             var storeId = package.ReadString();
 
+            Handle(sender, kind, storeId, package);
+            yield break;
+        }
+
+        /// <summary>
+        /// Answers one message from a client.
+        /// </summary>
+        /// <remarks>
+        /// Outside the coroutine, and wrapped, because a handler that throws inside an iterator
+        /// simply stops: the client is left waiting for an answer that will never come, and a
+        /// client waiting on a deposit refuses every later one. Anything that throws is reported
+        /// as a refusal for the messages that promise a reply.
+        /// </remarks>
+        private static void Handle(long sender, ChestMessage kind, string storeId, ZPackage package)
+        {
+            try
+            {
+                HandleMessage(sender, kind, storeId, package);
+            }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.LogError($"Failed to handle {kind} for chest {storeId}: {ex}");
+
+                try
+                {
+                    if (kind == ChestMessage.Put)
+                    {
+                        SendPutRefused(sender, storeId);
+                    }
+                    else if (kind == ChestMessage.StackAll)
+                    {
+                        var none = new ZPackage();
+                        none.Write((int)ChestMessage.Stacked);
+                        none.Write(storeId);
+                        none.Write(0);
+                        _rpc.SendPackage(sender, none);
+                    }
+                }
+                catch (System.Exception replyEx)
+                {
+                    Plugin.Log.LogError($"Could not even refuse {kind} for chest {storeId}: {replyEx}");
+                }
+            }
+        }
+
+        private static void HandleMessage(long sender, ChestMessage kind, string storeId, ZPackage package)
+        {
             switch (kind)
             {
                 case ChestMessage.Open:
@@ -634,8 +681,6 @@ namespace BottomlessChest.Net
                     break;
                 }
             }
-
-            yield break;
         }
 
         private static void SendPutRefused(long peer, string storeId)

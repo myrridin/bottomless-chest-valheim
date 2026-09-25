@@ -89,7 +89,12 @@ namespace BottomlessChest.Gui
                 // gamepad ensure-visible centred the selected slot, both leaving the grid parked
                 // on its last row and a half with the drop slot moved off its place. Vanilla's
                 // CenterOnItem skips a ScrollRect that cannot scroll vertically.
-                _wasVertical = owner.vertical;
+                // Only a ScrollRect that still had our bar can be trusted to report its own
+                // setting: claiming one whose bar is already gone means an earlier bridge left
+                // it, and its vertical flag is that bridge's false, not the game's. Restoring
+                // that would leave the shared container grid unable to scroll for vanilla
+                // chests too.
+                _wasVertical = !_hadBar || owner.vertical;
                 owner.vertical = false;
                 owner.StopMovement();
                 if (owner.content != null)

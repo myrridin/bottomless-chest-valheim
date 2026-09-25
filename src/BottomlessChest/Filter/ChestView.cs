@@ -974,6 +974,14 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
+            // Nothing is marked pending for a message that cannot be sent: ChestRpc drops sends
+            // silently before the RPC exists, and a put recorded then would never be answered
+            // and would refuse every later deposit for the rest of the session.
+            if (!Net.ChestRpc.Ready)
+            {
+                return false;
+            }
+
             var offered = StackRules.TakeAmount(amount, item.m_stack);
             if (offered <= 0)
             {

@@ -106,8 +106,13 @@ namespace BottomlessChest.Compat
 
                     foreach (var entry in index.Entries)
                     {
+                        // Vanilla GetItem filters on world level with no flag to turn it off,
+                        // unlike HaveItem, CountItems and RemoveItem. Answering without it hands
+                        // a station an item its own removal would then refuse to take, and it
+                        // retries for ever.
                         if (entry.Count > 0
                             && (quality < 0 || entry.Quality == quality)
+                            && entry.WorldLevel >= Game.m_worldLevel
                             && (isPrefabName ? entry.ItemId == name : ChestContents.IsNamed(entry.ItemId, name)))
                         {
                             __result = ChestContents.StandIn(entry);

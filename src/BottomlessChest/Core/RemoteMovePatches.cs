@@ -106,6 +106,14 @@ namespace BottomlessChest.Core
                     return true;
                 }
 
+                // Vanilla refuses a quest item before it removes anything, so letting it run
+                // costs nothing and keeps its message. Taking one from the server first would
+                // put on the ground what the game says cannot be dropped.
+                if (item.m_shared.m_questItem)
+                {
+                    return true;
+                }
+
                 var slot = ChestView.PageSlotOf(item);
                 if (amount <= 0 || slot < 0)
                 {
