@@ -329,6 +329,16 @@ has to be read with that in mind.
       - **Not yet retested after those fixes**, and `v0.4.0` is not tagged.
       - Known limit: a mass deposit moves one stack per press (one deposit in flight at a time).
 
+- [ ] **D18. Mirror a closed chest's contents into its page on a client.** A client holds only
+      the page it last saw, so a mod reading a chest's inventory sees at most forty items -
+      NearbyCrafting's quick-deposit only offers kinds it can already see there, which is why it
+      moves nothing in a large chest until the player searches for that item. Filling a closed
+      chest's inventory with one stand-in per index entry would make every such mod correct
+      without a patch each, and would end the stale-page judgements ValheimPlus makes too.
+      The catch: stand-ins would then really be in `m_inventory`, so vanilla `RemoveItem(item)`
+      would succeed locally and the server would never hear - every removal path for a client
+      chest inventory has to be intercepted first. Its own design, review and test pass; 0.5.0.
+
 ### C. Requested by the user
 
 - [x] **C11. Default build cost → the wooden chest's.** Done in `39457f6`: `Wood:10`, read

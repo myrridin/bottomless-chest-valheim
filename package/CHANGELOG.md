@@ -20,6 +20,9 @@ server. Chests are stored exactly as before, so upgrading and going back are bot
   confirms it arrived.
 - A mod that counts what it moved by reading your inventory straight afterwards may report
   nothing deposited: the items leave a moment later, when the server answers. They do arrive.
+- **Known limit:** a quick-deposit hotkey only moves kinds of item it can see in the chest, and
+  your machine holds just the page you last looked at. In a large chest, search for an item once
+  and it will deposit from then on. Crafting, building and dragging items in are unaffected.
 
 ## 0.3.0
 
