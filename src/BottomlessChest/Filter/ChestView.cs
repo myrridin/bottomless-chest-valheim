@@ -770,6 +770,8 @@ namespace BottomlessChest.Filter
         private static readonly Logic.OfferQueue<ItemDrop.ItemData> OfferQueue =
             new Logic.OfferQueue<ItemDrop.ItemData>(OfferTimeoutSeconds);
 
+        private static bool _warnedStrandedOffer;
+
         private static Player _offerPlayer;
         private static int _offersPumpedFrame = -1;
 
@@ -887,7 +889,19 @@ namespace BottomlessChest.Filter
                     }
                 }
 
-                Plugin.Log.LogDebug($"Offering {offered.Count} stackable item(s) to chest {storeId}.");
+                Plugin.Log.LogDebug($"Offering {offered.Count} item(s) to chest {storeId}.");
+
+                if (offered.Count == 0 && !_warnedStrandedOffer
+                    && OfferQueue.OverdueCount(Time.realtimeSinceStartup) > 0)
+                {
+                    // Everything the player carries is reserved by an offer that was never
+                    // answered, so this and every later Place Stacks has nothing to send. Said
+                    // once: silently stacking nothing for the rest of the session is worse.
+                    _warnedStrandedOffer = true;
+                    Plugin.Log.LogError(
+                        "A Place Stacks offer was never answered, so the items it carried are still " +
+                        "held for it and cannot be offered again. Rejoining the world clears them.");
+                }
 
                 if (offered.Count == 0)
                 {

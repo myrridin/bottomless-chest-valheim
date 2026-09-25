@@ -59,7 +59,7 @@ namespace BottomlessChest.Core
             // Any mod, not only ValheimPlus: a client holds a page, so an item added here is
             // discarded at the next save unless the server is told. Refusing is the fallback for
             // when it cannot be told, which is what 0.2.1 did for everyone.
-            if (item == null || !Net.ChestRpc.Ready)
+            if (item == null || !Net.ChestRpc.CanSend)
             {
                 return false;
             }

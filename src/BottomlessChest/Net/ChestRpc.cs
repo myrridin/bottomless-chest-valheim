@@ -62,7 +62,10 @@ namespace BottomlessChest.Net
         /// <param name="minWorldLevel">Take only items at or above this world level; -1 for any.</param>
         internal static void TakeByName(string storeId, long version, string itemId, int quality, int amount, int minWorldLevel = -1)
         {
-            if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(itemId) || amount <= 0 || !Ready)
+            // CanSend, not Ready: the mod asking has already been told it got these items and
+            // the index has been deducted. A send dropped here means the server never removes
+            // them, and the next summary hands them back - materials for nothing.
+            if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(itemId) || amount <= 0 || !CanSend)
             {
                 return;
             }
@@ -548,7 +551,23 @@ namespace BottomlessChest.Net
 
                 case ChestMessage.StackAll:
                 {
-                    var offered = Deserialize(package.ReadByteArray());
+                    // Read in full or not at all. The reply names kept items by their position in
+                    // this list, so an item this install cannot resolve - a content mod the server
+                    // lacks - would shift every position after it and the client would delete the
+                    // wrong items.
+                    if (!TryDeserialize(package.ReadByteArray(), out var offered))
+                    {
+                        Plugin.Log.LogError(
+                            $"Could not read a Place Stacks offer for chest {storeId}; refusing all " +
+                            "of it so the sender keeps everything.");
+
+                        var unreadable = new ZPackage();
+                        unreadable.Write((int)ChestMessage.Stacked);
+                        unreadable.Write(storeId);
+                        unreadable.Write(0);
+                        _rpc.SendPackage(sender, unreadable);
+                        break;
+                    }
 
                     // Depositing works on a closed chest, so this may be the only thing
                     // holding the session. Release it again if nobody had it open.
@@ -695,7 +714,23 @@ namespace BottomlessChest.Net
 
                     foreach (var item in deposited)
                     {
-                        session.Deposit(item);
+                        try
+                        {
+                            session.Deposit(item);
+                        }
+                        catch (System.Exception ex)
+                        {
+                            // The sender has already told the other mod this went in, so an item
+                            // that cannot be kept goes back rather than disappearing. One at a
+                            // time, so a failure late in a batch does not resend what was kept.
+                            Plugin.Log.LogError($"Could not keep an item forwarded into chest {storeId}: {ex}");
+
+                            var bounced = new ZPackage();
+                            bounced.Write((int)ChestMessage.DepositRefused);
+                            bounced.Write(storeId);
+                            bounced.Write(Serialize(new List<ItemDrop.ItemData> { item }));
+                            _rpc.SendPackage(sender, bounced);
+                        }
                     }
 
                     ChestSessions.Persist(session);
