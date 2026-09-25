@@ -839,7 +839,11 @@ namespace BottomlessChest.Filter
                 var offered = new List<ItemDrop.ItemData>();
                 foreach (var item in player.m_inventory)
                 {
-                    if (item.m_shared.m_maxStackSize > 1 && !item.m_equipped && !OfferQueue.IsReserved(item))
+                    // Anything not equipped, whether or not it stacks. Vanilla's StackAll moves
+                    // any item whose name the chest already holds - a second pair of trousers
+                    // included - and the server keeps only those, so filtering by stack size
+                    // here left unstackable items behind that vanilla would have moved.
+                    if (!item.m_equipped && !OfferQueue.IsReserved(item))
                     {
                         offered.Add(item);
                     }

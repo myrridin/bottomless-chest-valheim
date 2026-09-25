@@ -545,18 +545,20 @@ namespace BottomlessChest.Net
                     }
 
                     // Only items the chest already holds are taken, which is what "stack"
-                    // means as opposed to "dump everything in".
+                    // means as opposed to "dump everything in". By shared name, as vanilla's
+                    // StackAll decides it: a chest holding one pair of trousers takes the
+                    // second, and quality or world level do not make it a different kind here.
                     var held = new HashSet<string>(System.StringComparer.Ordinal);
                     foreach (var item in session.Inventory.m_inventory)
                     {
-                        held.Add(Core.ChestSession.StackKey(item));
+                        held.Add(item.m_shared.m_name);
                     }
 
                     var kept = new List<int>();
                     for (var i = 0; i < offered.Count; i++)
                     {
                         var item = offered[i];
-                        if (item.m_shared.m_maxStackSize <= 1 || !held.Contains(Core.ChestSession.StackKey(item)))
+                        if (!held.Contains(item.m_shared.m_name))
                         {
                             continue;
                         }
