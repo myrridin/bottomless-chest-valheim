@@ -12,7 +12,8 @@ going back to 0.2.1 does too.
 
 ### ValheimPlus
 
-Tested against ValheimPlus 10.1.2. Without it, nothing here runs and the mod behaves as 0.2.1 did.
+Tested against ValheimPlus 10.2.0 on Valheim 1.0.16. Without ValheimPlus, nothing in this section
+runs and the mod behaves as 0.2.1 did.
 
 - **Craft, build and repair** from a bottomless chest, and see its materials counted in the
   build and crafting panels.
@@ -61,6 +62,8 @@ Tested against ValheimPlus 10.1.2. Without it, nothing here runs and the mod beh
 - **The build cost is now 10 wood**, the same as a wooden chest. If you never changed the cost,
   your config is updated to match; if you set your own, it is left alone.
 - `Multiplayer.SnapshotDebounceSeconds` is gone. Nothing had read it since 0.2.0.
+- Dragging a quest item out of the chest window is refused, the way the game refuses it
+  everywhere else.
 - Tested with 100,000 stacks. A million still works, but makes a server close to unusable.
 
 ## 0.2.1
