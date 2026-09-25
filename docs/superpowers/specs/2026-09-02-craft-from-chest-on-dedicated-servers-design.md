@@ -300,3 +300,45 @@ Needs the game, and belongs in the dedicated-server pass:
    syncs by its own range rule. If ours is narrower, V+ sees a chest with no index and
    silently gets zero. The sync range must be at least V+'s configured `CraftFromChest.range`
    ceiling of 50m.
+
+## Revision — 2026-09-25 (3): any mod, not just ValheimPlus
+
+GitHub issue #3: a player using **NearbyCrafting** (IPA38, 1.2.1) cannot craft or build from a
+bottomless chest. Decompiled to `/mnt/c/valheim_mods/nearbycrafting/NearbyCrafting.cs`.
+
+### What it does, and why it already nearly works
+
+| What | Call | Covered by |
+|---|---|---|
+| Count for a requirement | `container.GetInventory().CountItems(name, quality, matchWorldLevel)` | `InventoryQueryPatches.CountItemsPatch` |
+| Pay for a craft or a build | `inventory.RemoveItem(name, amount, quality)` | `InventoryQueryPatches.RemoveByNamePatch` |
+| Mass quick-deposit | `targetInventory.MoveItemToThis(player, item, amount, x, y)` | `RemoteMovePatches.MovePart` |
+
+Every one is a vanilla method this mod already answers. Nothing about NearbyCrafting needs a
+hook of its own, which is the point of having patched vanilla rather than ValheimPlus's call
+sites.
+
+### Why it fails anyway
+
+Everything is gated on `ValheimPlusBridge.Attached`: `ChestContents.Resolve` refuses, and
+`BottomlessContainer.RefreshIndex` never asks the server for totals. With no ValheimPlus
+installed a bottomless chest answers every question with nothing.
+
+### The design: ask on demand
+
+- **A chest starts asking when something asks about it.** `ChestContents.Resolve` no longer
+  requires ValheimPlus; it marks the chest wanted, and `RefreshIndex` polls only chests marked
+  wanted within the last 30 seconds. A chest nobody asks about costs nothing - better than
+  today's blanket polling whenever ValheimPlus is present, and it eases D17.
+- **The first answer is empty.** Until the first summary arrives a count reads 0, for about a
+  second. Requirement panels re-query constantly, so it corrects itself; a craft in that instant
+  is simply not yet available. Stations already tolerate this: they retry every tick.
+- **Deposits follow the same rule.** `ClientDepositGuard` forwards to the server instead of
+  refusing whenever the chest is ours and the network is up, with or without ValheimPlus.
+- **ValheimPlus keeps its own switch.** `Attached` still governs the three hooks into
+  `InventoryAssistant` and the optional sweep-targeting hook, which are meaningless without it.
+- **Known limit:** one deposit is in flight at a time, so a mass deposit moves one stack per
+  press until deposits are queued the way offers are.
+
+Ships as **0.3.1**: no wire change, so `VersionStrictness.Minor` still lets 0.3.x clients and
+servers mix.
