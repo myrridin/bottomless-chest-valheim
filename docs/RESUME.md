@@ -310,6 +310,25 @@ has to be read with that in mind.
       base within range, updates live as a kiln consumes, and drops to zero a few metres past
       the radius. No defect.
 
+- [ ] **0.4.0 (issue #3): craft from chest for any mod.** Branch `release-0.4.0`, plan
+      `docs/superpowers/plans/2026-09-25-craft-from-chest-for-any-mod.md`, spec revision (3).
+      NearbyCrafting counts with `Inventory.CountItems`, pays with `RemoveItem(string, …)` and
+      deposits with `MoveItemToThis` - all already answered; the only blocker was the ValheimPlus
+      gate. A chest now starts asking the server for its totals when something asks about it
+      (`MarkContentsWanted`, 30 s window) and deposits are forwarded for any mod (`d55c311`,
+      `494398f`, `e418747`).
+      - **Verified in game 2026-09-25** on Valheim 1.0.16, with V+ disabled on both sides:
+        NearbyCrafting counts, builds, crafts and F6-deposits from a bottomless chest; the chest
+        window, V+ stations and the no-mod baseline all still behave. Logs clean, no stale takes.
+      - **Review round (2026-09-25) found seven, all fixed in `c6f3f94`:** the stacked reply
+        releasing an offer with no player inventory (items in both places); an offer recorded in
+        flight before a send that `ToServer` can drop, wedging that chest for the session;
+        `GetItem` handing out an oversized stand-in and no answer for removing a stand-in by
+        reference; `CountItemsByName`/`CountItemsByType` unanswered; Place Stacks silent when it
+        could not queue; and two silent item-loss paths on drops.
+      - **Not yet retested after those fixes**, and `v0.4.0` is not tagged.
+      - Known limit: a mass deposit moves one stack per press (one deposit in flight at a time).
+
 ### C. Requested by the user
 
 - [x] **C11. Default build cost → the wooden chest's.** Done in `39457f6`: `Wood:10`, read
