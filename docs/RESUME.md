@@ -302,6 +302,14 @@ has to be read with that in mind.
       - **Not yet deployed or tested in game** (the user was mid-test on the previous build).
         Task 5's list is in the plan; `/code-review` after.
 
+- [x] **A2-adjacent, answered 2026-09-25: craft-from-chest range is the mod's, not ours.** The
+      user saw materials counted from what seemed like 300 m. ValheimPlus gathers chests with
+      `Physics.OverlapSphere` around the crafting station, radius `[CraftFromChest] range`,
+      capped at 50 m (their config: 50, `checkFromWorkbench = true`); NearbyCrafting uses
+      `ContainerRange`, default 20 m, ceiling 100. Retested: the count came from a forgotten
+      base within range, updates live as a kiln consumes, and drops to zero a few metres past
+      the radius. No defect.
+
 ### C. Requested by the user
 
 - [x] **C11. Default build cost → the wooden chest's.** Done in `39457f6`: `Wood:10`, read
