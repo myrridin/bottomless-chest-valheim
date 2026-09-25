@@ -314,6 +314,12 @@ has to be read with that in mind.
         `client-cfg-before-palette.cfg`; its values were the defaults).
       - **B, ember gold:** `#D8B27A` / `#3A2818` / `#FFB04A` / `0.8`.
       - **C, rune moss:** `#A8B88A` / `#22301E` / `#9CFF6A` / `0.9`.
+      - **User verdict on A (2026-09-25): "obnoxious"; wants subtle.**
+      - **D, warm oak — set in the dev config 2026-09-25:** `#C9B79A` / `#3A2E22` / `#FFC489` /
+        `0.25`. Reads as a wooden chest with a warm cast and a low amber rim. Fallbacks if still
+        too much: the same at `0.15`, or cool grey `#B9B6BE` / `#2A2733` / `#9E86D8` / `0.2`.
+        Once a palette is chosen, ship it the way C11 shipped the build cost: new defaults, and
+        `ConfigDefaults.Upgrade` moves configs still holding the old defaults exactly.
       No blue-cyan: that is the placement ghost's colour. Current defaults: body `#C4C2BC`,
       lid `#2E2E33`, glow `#8FA86B` at `0.35`. Needs in-game screenshots to judge. Same
       stored-default problem as C11, same proposed answer.
