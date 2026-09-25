@@ -32,6 +32,9 @@ namespace BottomlessChest.Core
     /// store id, or an item from the player's own inventory (see <see cref="TryForward"/>).
     /// A forwarded item the server cannot keep comes back and is dropped at the chest.
     ///
+    /// Since 0.4.0 that applies to whichever mod added the item. It used to require the
+    /// ValheimPlus integration, which left every other mod's deposit refused.
+    ///
     /// Only the single-argument overload is patched. Player deposits reach a container through
     /// <c>MoveItemToThis</c>, which calls the private <c>AddItem(item, amount, x, y)</c>, so
     /// dragging an item into a chest is untouched. The argument types are stated explicitly
@@ -53,9 +56,10 @@ namespace BottomlessChest.Core
         /// </remarks>
         private static bool TryForward(Inventory inventory, ItemDrop.ItemData item)
         {
-            // Only with the ValheimPlus integration active. Without it this client refuses, as
-            // 0.2.1 did - see ValheimPlusBridge.Attached for everything that switch covers.
-            if (item == null || !Net.ChestRpc.Ready || !Compat.ValheimPlusBridge.Attached)
+            // Any mod, not only ValheimPlus: a client holds a page, so an item added here is
+            // discarded at the next save unless the server is told. Refusing is the fallback for
+            // when it cannot be told, which is what 0.2.1 did for everyone.
+            if (item == null || !Net.ChestRpc.Ready)
             {
                 return false;
             }
