@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using BottomlessChest.Filter;
+using BottomlessChest.Storage;
 using HarmonyLib;
 
 namespace BottomlessChest.Core
@@ -23,6 +24,8 @@ namespace BottomlessChest.Core
     /// </remarks>
     internal static class RemoteMovePatches
     {
+        private static bool _warnedClosedChest;
+
         private static readonly List<int> OneSlot = new List<int>(1);
         private static readonly List<int> OneAmount = new List<int>(1);
 
@@ -77,6 +80,26 @@ namespace BottomlessChest.Core
             if (ChestView.IsRemotePage(destination))
             {
                 return ChestView.RequestPut(item, amount) ? Outcome.Sent : Outcome.Refused;
+            }
+
+            // Into a bottomless chest that is not the one on screen - a mod depositing into a
+            // closed chest, as NearbyCrafting's quick-deposit does. Vanilla would add it to this
+            // client's copy of a chest whose contents live on the server, and the copy is thrown
+            // away: the item leaves the player and is gone. Refusing keeps it with the player
+            // until deposits into a closed chest are sent to the server properly.
+            if (!SidecarStore.IsServerAuthority && destination != null
+                && InventoryCapacity.IsUnbounded(destination))
+            {
+                if (!_warnedClosedChest)
+                {
+                    _warnedClosedChest = true;
+                    Plugin.Log.LogWarning(
+                        "Refused a deposit into a bottomless chest that is not open. This client " +
+                        "holds no contents for a closed chest, so the item would have been lost. " +
+                        "Open the chest and drag it in, or use Place Stacks.");
+                }
+
+                return Outcome.Refused;
             }
 
             return Outcome.RunVanilla;
