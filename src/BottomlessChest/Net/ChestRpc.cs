@@ -167,11 +167,16 @@ namespace BottomlessChest.Net
             ToServer(package);
         }
 
-        internal static void Put(string storeId, byte[] itemBytes)
+        /// <param name="putId">
+        /// Names this deposit in the answer. Without it an answer could only name the chest, so
+        /// one deposit per chest could be in flight and a mass deposit moved one stack per press.
+        /// </param>
+        internal static void Put(string storeId, int putId, byte[] itemBytes)
         {
             var package = new ZPackage();
             package.Write((int)ChestMessage.Put);
             package.Write(storeId);
+            package.Write(putId);
             package.Write(itemBytes);
             ToServer(package);
         }
@@ -255,7 +260,9 @@ namespace BottomlessChest.Net
                 {
                     if (kind == ChestMessage.Put)
                     {
-                        SendPutRefused(sender, storeId);
+                        // Id 0: this failed before the deposit's id could be read, so the client
+                        // releases everything it has pending for this chest rather than nothing.
+                        SendPutRefused(sender, storeId, 0);
                     }
                     else if (kind == ChestMessage.StackAll)
                     {
@@ -387,21 +394,36 @@ namespace BottomlessChest.Net
 
                 case ChestMessage.Put:
                 {
+                    var putId = package.ReadInt();
                     var itemBytes = package.ReadByteArray();
+
+                    // A deposit can be aimed at a chest nobody has open - another mod's
+                    // quick-deposit does that - so this may be the only thing holding the
+                    // session. Released again below if nobody had it open.
+                    var wasOpen = ChestSessions.TryGet(storeId, out _);
 
                     // Every path that does not accept answers PutRefused. The client holds the
                     // item reserved until it hears back, so silence would strand it.
-                    if (!ChestSessions.TryGet(storeId, out var session))
+                    var session = ChestSessions.Acquire(storeId);
+                    if (session == null)
                     {
-                        SendPutRefused(sender, storeId);
+                        SendPutRefused(sender, storeId, putId);
                         break;
                     }
 
                     if (RefusesToChange(session, sender, "a deposit"))
                     {
                         // Anything but Accepted leaves the item with the sender.
-                        SendPutRefused(sender, storeId);
-                        SendPage(sender, session, -1);
+                        SendPutRefused(sender, storeId, putId);
+                        if (wasOpen)
+                        {
+                            SendPage(sender, session, -1);
+                        }
+                        else
+                        {
+                            ChestSessions.Release(storeId);
+                        }
+
                         break;
                     }
 
@@ -415,8 +437,16 @@ namespace BottomlessChest.Net
                             $"Could not read a deposit into chest {storeId}; refusing it so the " +
                             "sender keeps the item.");
 
-                        SendPutRefused(sender, storeId);
-                        SendPage(sender, session, -1);
+                        SendPutRefused(sender, storeId, putId);
+                        if (wasOpen)
+                        {
+                            SendPage(sender, session, -1);
+                        }
+                        else
+                        {
+                            ChestSessions.Release(storeId);
+                        }
+
                         break;
                     }
 
@@ -430,9 +460,20 @@ namespace BottomlessChest.Net
                     var accepted = new ZPackage();
                     accepted.Write((int)ChestMessage.Accepted);
                     accepted.Write(storeId);
+                    accepted.Write(putId);
                     _rpc.SendPackage(sender, accepted);
 
-                    SendPage(sender, session, -1);
+                    // A page only for a chest this client is looking at; one for a closed chest
+                    // would redraw whatever window is open with another chest's contents.
+                    if (wasOpen)
+                    {
+                        SendPage(sender, session, -1);
+                    }
+                    else
+                    {
+                        ChestSessions.Release(storeId);
+                    }
+
                     break;
                 }
 
@@ -693,11 +734,12 @@ namespace BottomlessChest.Net
             }
         }
 
-        private static void SendPutRefused(long peer, string storeId)
+        private static void SendPutRefused(long peer, string storeId, int putId)
         {
             var refused = new ZPackage();
             refused.Write((int)ChestMessage.PutRefused);
             refused.Write(storeId);
+            refused.Write(putId);
             _rpc.SendPackage(peer, refused);
         }
 
@@ -980,11 +1022,11 @@ namespace BottomlessChest.Net
                 }
 
                 case ChestMessage.Accepted:
-                    Filter.ChestView.ApplyAccepted();
+                    Filter.ChestView.ApplyAccepted(package.ReadInt());
                     break;
 
                 case ChestMessage.PutRefused:
-                    Filter.ChestView.ApplyPutRefused();
+                    Filter.ChestView.ApplyPutRefused(storeId, package.ReadInt());
                     break;
 
                 case ChestMessage.DepositRefused:

@@ -57,10 +57,28 @@ namespace BottomlessChest.Filter
         /// meant that closing between sending and being answered left the server holding the
         /// item and the player holding it too.
         /// </remarks>
-        private static ItemDrop.ItemData _pendingPut;
+        private sealed class PendingPut
+        {
+            internal string StoreId;
 
-        /// <summary>How much of <see cref="_pendingPut"/> was offered; 0 means all of it.</summary>
-        private static int _pendingPutAmount;
+            internal ItemDrop.ItemData Item;
+
+            /// <summary>How much of the item was offered; 0 means all of it.</summary>
+            internal int Amount;
+        }
+
+        /// <summary>
+        /// One offered item per chest, awaiting that chest's answer.
+        /// </summary>
+        /// <remarks>
+        /// Keyed by the id carried on the wire, which the answer echoes, so several deposits can
+        /// be in flight at once - a mass deposit into a chest nobody has open sends one per stack
+        /// and each answer finds its own item. The item itself stays reserved until then, so the
+        /// same stack is never sent twice.
+        /// </remarks>
+        private static readonly Dictionary<int, PendingPut> Puts = new Dictionary<int, PendingPut>();
+
+        private static int _nextPutId;
 
         /// <summary>
         /// Last known stack count per chest, so a closed chest can still be judged empty.
@@ -675,43 +693,64 @@ namespace BottomlessChest.Filter
         }
 
         /// <summary>The server took what we offered, so our copy of that much can go.</summary>
-        internal static void ApplyAccepted()
+        internal static void ApplyAccepted(int putId)
         {
-            if (_pendingPut == null)
+            if (!Puts.TryGetValue(putId, out var put))
             {
                 return;
             }
 
+            Puts.Remove(putId);
             var inventory = Player.m_localPlayer?.GetInventory();
 
-            if (_pendingPutAmount > 0 && _pendingPutAmount < _pendingPut.m_stack)
+            if (put.Amount > 0 && put.Amount < put.Item.m_stack)
             {
                 // Only part of the stack was offered, so only that part is gone. Vanilla has
                 // no partial RemoveItem for an ItemData in 1.0, so the count is adjusted
                 // directly and the inventory told, which is what RemoveItem would have done.
-                _pendingPut.m_stack -= _pendingPutAmount;
+                put.Item.m_stack -= put.Amount;
                 inventory?.Changed();
             }
             else
             {
-                inventory?.RemoveItem(_pendingPut);
+                inventory?.RemoveItem(put.Item);
             }
 
-            OfferQueue.Release(_pendingPut);
-            _pendingPut = null;
-            _pendingPutAmount = 0;
+            OfferQueue.Release(put.Item);
         }
 
         /// <summary>The server declined the put, so the item stays and may be offered again.</summary>
-        internal static void ApplyPutRefused()
+        /// <param name="putId">
+        /// The deposit refused, or 0 when the server could not read which one - then everything
+        /// pending for that chest is released, since one of them is the one it could not read.
+        /// </param>
+        internal static void ApplyPutRefused(string storeId, int putId)
         {
-            if (_pendingPut != null)
+            if (putId != 0)
             {
-                OfferQueue.Release(_pendingPut);
+                if (Puts.TryGetValue(putId, out var put))
+                {
+                    Puts.Remove(putId);
+                    OfferQueue.Release(put.Item);
+                }
+
+                return;
             }
 
-            _pendingPut = null;
-            _pendingPutAmount = 0;
+            var stranded = new List<int>();
+            foreach (var pending in Puts)
+            {
+                if (pending.Value.StoreId == storeId)
+                {
+                    stranded.Add(pending.Key);
+                }
+            }
+
+            foreach (var id in stranded)
+            {
+                OfferQueue.Release(Puts[id].Item);
+                Puts.Remove(id);
+            }
         }
 
         /// <summary>
@@ -821,8 +860,7 @@ namespace BottomlessChest.Filter
                 if (_offerPlayer != null)
                 {
                     OfferQueue.Clear();
-                    _pendingPut = null;
-                    _pendingPutAmount = 0;
+                    Puts.Clear();
                 }
 
                 _offerPlayer = local;
@@ -999,19 +1037,29 @@ namespace BottomlessChest.Filter
         /// clone carrying only the split amount, and the player keeps the original until the
         /// server answers - the same rule as a whole offer, applied to a smaller number.
         /// </remarks>
-        internal static bool RequestPut(ItemDrop.ItemData item, int amount = 0)
+        /// <summary>Offers an item to the chest on screen.</summary>
+        internal static bool RequestPut(ItemDrop.ItemData item, int amount = 0) =>
+            _remote && RequestPut(_remoteStoreId, item, amount);
+
+        /// <summary>
+        /// Offers an item, or part of one, to a chest by id - open or not.
+        /// </summary>
+        /// <remarks>
+        /// The player keeps the item until the server says it has it. One put per chest at a
+        /// time, and no timeout: the answer names only the chest, so a second put to the same
+        /// chest would let the first answer remove the wrong item, and re-sending an item whose
+        /// answer was only slow is how both copies got kept. The server always answers.
+        /// </remarks>
+        internal static bool RequestPut(string storeId, ItemDrop.ItemData item, int amount = 0)
         {
-            if (!_remote || item == null)
+            if (string.IsNullOrEmpty(storeId) || item == null)
             {
                 return false;
             }
 
-            // One put at a time, and no timeout. Accepted carries no identity, so a second put
-            // sent before the first is answered would let the first answer remove the wrong item;
-            // and re-sending an item whose answer was only slow is how both copies got kept. The
-            // server always answers, so only a disconnect leaves this set, and the player keeps
-            // the item.
-            if (_pendingPut != null || OfferQueue.IsReserved(item))
+            // The item, not the chest, is what must not be sent twice: it stays reserved until
+            // its own answer arrives, and a reserved item is offered to nothing else meanwhile.
+            if (OfferQueue.IsReserved(item))
             {
                 return false;
             }
@@ -1049,10 +1097,10 @@ namespace BottomlessChest.Filter
                 return false;
             }
 
-            _pendingPut = item;
-            _pendingPutAmount = partial ? offered : 0;
+            var putId = ++_nextPutId;
+            Puts[putId] = new PendingPut { StoreId = storeId, Item = item, Amount = partial ? offered : 0 };
             OfferQueue.Reserve(item);
-            Net.ChestRpc.Put(_remoteStoreId, payload);
+            Net.ChestRpc.Put(storeId, putId, payload);
             return true;
         }
 

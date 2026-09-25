@@ -24,8 +24,6 @@ namespace BottomlessChest.Core
     /// </remarks>
     internal static class RemoteMovePatches
     {
-        private static bool _warnedClosedChest;
-
         private static readonly List<int> OneSlot = new List<int>(1);
         private static readonly List<int> OneAmount = new List<int>(1);
 
@@ -84,22 +82,16 @@ namespace BottomlessChest.Core
 
             // Into a bottomless chest that is not the one on screen - a mod depositing into a
             // closed chest, as NearbyCrafting's quick-deposit does. Vanilla would add it to this
-            // client's copy of a chest whose contents live on the server, and the copy is thrown
-            // away: the item leaves the player and is gone. Refusing keeps it with the player
-            // until deposits into a closed chest are sent to the server properly.
+            // client's copy of a chest whose contents live on the server, and that copy is thrown
+            // away: the item left the player and was gone. Sent to the server instead, addressed
+            // to that chest; refused when it cannot be sent, which leaves the item where it is.
             if (!SidecarStore.IsServerAuthority && destination != null
-                && InventoryCapacity.IsUnbounded(destination))
+                && InventoryCapacity.IsUnbounded(destination)
+                && BottomlessContainer.TryResolveInventory(destination, out var chest))
             {
-                if (!_warnedClosedChest)
-                {
-                    _warnedClosedChest = true;
-                    Plugin.Log.LogWarning(
-                        "Refused a deposit into a bottomless chest that is not open. This client " +
-                        "holds no contents for a closed chest, so the item would have been lost. " +
-                        "Open the chest and drag it in, or use Place Stacks.");
-                }
-
-                return Outcome.Refused;
+                return ChestView.RequestPut(chest.CurrentStoreId, item, amount)
+                    ? Outcome.Sent
+                    : Outcome.Refused;
             }
 
             return Outcome.RunVanilla;

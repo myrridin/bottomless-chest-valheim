@@ -15,9 +15,11 @@ server. Chests are stored exactly as before, so upgrading and going back are bot
 - **Fixed: items could be destroyed by a mod depositing into a closed bottomless chest.** The
   item left your inventory and went into your own machine's copy of a chest whose contents live
   on the server, and that copy is thrown away. This could happen on 0.3.0 and earlier too.
-  Such a deposit is now refused, so the item stays with you.
-- **Known limit:** depositing into a bottomless chest that is not open does nothing, including
-  NearbyCrafting's quick-deposit hotkey. Open the chest and drag items in, or use Place Stacks.
+- **Depositing into a chest you do not have open now works**, so quick-deposit hotkeys such as
+  NearbyCrafting's put items into bottomless chests. Each item stays with you until the server
+  confirms it arrived.
+- A mod that counts what it moved by reading your inventory straight afterwards may report
+  nothing deposited: the items leave a moment later, when the server answers. They do arrive.
 
 ## 0.3.0
 
