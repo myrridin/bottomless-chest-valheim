@@ -251,3 +251,46 @@ independent one — worth remembering when weighing it.
   `bottomlessdev` store that is another 40MB of transient allocation per save. Avoiding it
   means writing items ourselves rather than letting the game write them, which would trade
   a real correctness property for memory. Not worth it unless it actually bites.
+
+---
+
+# Valheim 1.0.15 and ValheimPlus 10.2.0 — checked 2026-09-25
+
+The game had updated from 1.0.12 to **1.0.15** and ValheimPlus from 10.1.2 to **10.2.0** while
+0.3.0 was in progress. Both were decompiled and diffed against what 0.3.0 was written against.
+
+**Decompiles:** `/mnt/c/valheim_mods/valheim-1.0.15-assemblies/v1.0.15.ref.cs` (decompiled with
+`-r <Managed>` so it is directly comparable to `valheim-0.221-assemblies/v1.0.cs`) and
+`/mnt/c/valheim_mods/valheimplus-assemblies/10.2.0/ValheimPlus.cs`. `ilspycmd` lives at
+`/mnt/c/Users/myrri/.dotnet/tools/ilspycmd.exe`; it is not on PATH.
+
+## Valheim 1.0.15: every method this mod patches or copies
+
+Identical, method body for method body: `Inventory.StackAll`, `FindEmptySlot`, `HaveItem`,
+`CountItems`, `GetItem`, `RemoveItem(string, int, int, bool)`, `TopFirst`, `FindFreeStackItem`,
+`ContainsItemByName`, `MoveItemToThis`; `Container.Save`, `Load`, `OnContainerChanged`,
+`RPC_RequestStack`, `RPC_StackResponse`, `AddDefaultItems`; `InventoryGui.OnStackAll`,
+`DoCrafting`; `Humanoid.DropItem`; `Recipe.GetAmount`; `InventoryGrid.UpdateGamepad`.
+
+Two changes, neither breaking:
+
+- **`Inventory.AddItem`** logs an occupied slot at Warning instead of Error. `PlaceStacksPatches`
+  replicates this method and should match it.
+- **`Inventory.Changed`** gained a "dropped a cheated item" popup, with a new `m_cheatedPopup`
+  field and `Inventory.AnyCheatedItem()`. Our replicated add calls vanilla `Changed`, so it
+  inherits the behaviour.
+
+**The store format is untouched:** `ItemDrop.ItemData.Save` and `Load`, and `Inventory.Save` and
+`Load`, diff to zero lines, and the inventory version is still 109.
+
+## ValheimPlus 10.2.0: the seams this mod hooks
+
+`InventoryAssistant` has the same members, with `GetNearbyChestItemsByContainerList(List<Container>)`
+and both `RemoveItemFromChest` overloads unchanged, in namespace `ValheimPlus`.
+`ValheimPlus.GameClasses.Inventory_StackAll_Patch.ContainsItemByName(Inventory, string)` and
+`AutoStackSweep` are unchanged. The set of places V+ reads a chest's local inventory is identical
+to 10.1.2, class for class, so `Compat/InventoryQueryPatches` covers the same ground.
+
+Confirmed at runtime: the dedicated server on 1.0.15, V+ 10.2.0 and Jotunn 2.30.2 logs
+"ValheimPlus chest integration: all 3 hooks attached" and loads without degrading, with no
+auto-stack targeting warning.
