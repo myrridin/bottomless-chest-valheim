@@ -5,7 +5,14 @@ session, with nothing else in hand.
 
 ## The one-line answer
 
-**0.2.1 is shipped and merged into this branch.** 0.3.0 work on `release-0.3.0`:
+**0.3.0 is built, packaged and tagged locally; the user uploads it to Thunderstore.**
+`dist/BottomlessChest-0.3.0.zip`, tag `v0.3.0`, nothing pushed. Verified on Valheim 1.0.16 with
+ValheimPlus 10.2.0 and Jotunn 2.30.2: identifiers and the store read path identical to v0.2.0,
+207 tests, a clean client and server run. **Next: NearbyCrafting (GitHub issue #3)** - the
+contents patches already answer any mod that asks a chest the vanilla way, but everything is
+gated on `ValheimPlusBridge.Attached`; opening that gate is likely most of the work.
+
+Earlier 0.3.0 work on `release-0.3.0`:
 - A1, A3 and B4–B8 are done: craft-from-chest for ValheimPlus 10.1.2 is implemented.
 - B9, the dedicated-server test, is nearly done: run 8 passed; gamepad support is scoped and
   finished; the temporary diagnostics are removed. Left: a server-owned kiln and the no-V+ path.
@@ -306,7 +313,8 @@ has to be read with that in mind.
       most players never edit it. Proposed: replace the stored value only when it still equals
       the old default exactly (`FineWood:20,BlackMetal:10,SurtlingCore:5`), leave anything
       edited. (The dev profile's `Wood:1` is a local testing value; leave it.)
-- [ ] **C12. Make the chest look good instead of drab.** User chose: I propose palettes, they
+- [x] **C12. Done (2026-09-25):** warm oak shipped as the default, with the same
+      unedited-config migration as C11 (`ab355e5`). User chose: I propose palettes, they
       try each in game (2026-09-14). Only unedited configs pick up new defaults (same
       `ConfigDefaults.Upgrade` as C11). Trial palettes (Body / Lid / Glow / Strength):
       - **A, void amethyst:** `#9B7FC9` / `#2B2140` / `#B98CFF` / `0.9` — **set in the dev
