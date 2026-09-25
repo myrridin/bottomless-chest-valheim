@@ -29,6 +29,14 @@ namespace BottomlessChest.Net
 
         internal static bool Ready => _rpc != null;
 
+        /// <summary>Whether a message would actually leave this machine.</summary>
+        /// <remarks>
+        /// <see cref="ToServer"/> drops a package silently when either half is missing. Anything
+        /// that records state on the strength of having sent something has to ask this first, or
+        /// it waits for an answer to a message that never left.
+        /// </remarks>
+        internal static bool CanSend => _rpc != null && ZRoutedRpc.instance != null;
+
         /// <summary>
         /// The latest summary of each chest this client can see. Empty on the server authority,
         /// which holds the chests themselves.
@@ -739,6 +747,11 @@ namespace BottomlessChest.Net
             {
                 if (item?.m_dropPrefab == null)
                 {
+                    // Nothing can be spawned without a prefab, and the mod that put this item in
+                    // has already been told it was kept. Say so rather than dropping it silently.
+                    Plugin.Log.LogError(
+                        $"An item sent back from chest {storeId} has no drop prefab and cannot be " +
+                        "placed on the ground; it is lost.");
                     continue;
                 }
 

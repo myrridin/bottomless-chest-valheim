@@ -633,6 +633,16 @@ namespace BottomlessChest.Filter
 
             foreach (var item in items)
             {
+                if (dropOnArrival && item != null && item.m_dropPrefab == null)
+                {
+                    // Without a prefab nothing can be spawned, so it goes back to the player
+                    // below rather than onto the ground. Silently reappearing in the inventory
+                    // after being dragged out looks like the drag failed.
+                    Plugin.Log.LogWarning(
+                        $"'{item.m_shared?.m_name}' came back from the chest to be dropped but has " +
+                        "no drop prefab; it goes to the player's inventory instead.");
+                }
+
                 if (dropOnArrival && item?.m_dropPrefab != null)
                 {
                     // Where vanilla's Humanoid.DropItem puts a dragged-out item: just ahead of
@@ -858,6 +868,16 @@ namespace BottomlessChest.Filter
                     continue;
                 }
 
+                if (!Net.ChestRpc.CanSend)
+                {
+                    // Nothing is recorded in flight for a message that cannot leave. An offer
+                    // marked sent and never answered keeps its chest and every item in it
+                    // reserved for the rest of the session; putting it back waits for the tick
+                    // where sending works.
+                    OfferQueue.Enqueue(storeId, message);
+                    return;
+                }
+
                 OfferQueue.Sent(storeId, offered, message, Time.realtimeSinceStartup);
                 Net.ChestRpc.StackAll(storeId, payload);
             }
@@ -873,14 +893,32 @@ namespace BottomlessChest.Filter
 
             var player = Player.m_localPlayer?.GetInventory();
             var moved = 0;
-            if (player != null)
+
+            if (player == null)
+            {
+                // The chest has already kept these. With no inventory to take them out of, the
+                // player would hold a copy of what the chest now holds. Only dying or leaving the
+                // world between the offer and this reply reaches here, and it is worth saying so.
+                Plugin.Log.LogError(
+                    $"Chest {storeId} kept {keptIndices.Count} offered stack(s) with no player " +
+                    "inventory to remove them from; those items may now exist in both places.");
+            }
+            else
             {
                 foreach (var index in keptIndices)
                 {
-                    if (index >= 0 && index < offered.Count)
+                    if (index < 0 || index >= offered.Count)
                     {
-                        moved += offered[index].m_stack;
-                        player.RemoveItem(offered[index]);
+                        continue;
+                    }
+
+                    // Counted only when it really left: an item moved elsewhere since the offer
+                    // is refused by RemoveItem, and claiming it in the message would be a lie.
+                    var item = offered[index];
+                    var stack = item.m_stack;
+                    if (player.RemoveItem(item))
+                    {
+                        moved += stack;
                     }
                 }
             }
@@ -975,9 +1013,9 @@ namespace BottomlessChest.Filter
             }
 
             // Nothing is marked pending for a message that cannot be sent: ChestRpc drops sends
-            // silently before the RPC exists, and a put recorded then would never be answered
-            // and would refuse every later deposit for the rest of the session.
-            if (!Net.ChestRpc.Ready)
+            // silently when either half of the routing is missing, and a put recorded then would
+            // never be answered and would refuse every later deposit for the rest of the session.
+            if (!Net.ChestRpc.CanSend)
             {
                 return false;
             }
