@@ -12,8 +12,12 @@ server. Chests are stored exactly as before, so upgrading and going back are bot
   chest's contents, pay from it for crafting and building, and deposit into it.
 - A chest asks the server for its totals only while something is asking about it, so a chest
   nobody queries costs nothing. Before, that depended on having ValheimPlus installed.
-- **Known limit:** a mass deposit moves one stack per press, because one deposit is in flight at
-  a time.
+- **Fixed: items could be destroyed by a mod depositing into a closed bottomless chest.** The
+  item left your inventory and went into your own machine's copy of a chest whose contents live
+  on the server, and that copy is thrown away. This could happen on 0.3.0 and earlier too.
+  Such a deposit is now refused, so the item stays with you.
+- **Known limit:** depositing into a bottomless chest that is not open does nothing, including
+  NearbyCrafting's quick-deposit hotkey. Open the chest and drag items in, or use Place Stacks.
 
 ## 0.3.0
 
