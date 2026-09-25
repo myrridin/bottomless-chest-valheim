@@ -10,13 +10,14 @@ namespace BottomlessChest.Compat
     /// What a bottomless chest holds, answered on a client from its synced index.
     /// </summary>
     /// <remarks>
-    /// A client holds only the page on screen, or nothing. Everything that asks a bottomless
-    /// chest what it holds on ValheimPlus's behalf comes through here, so every answer agrees.
+    /// A client holds only the page on screen, or nothing. Everything that answers what a
+    /// bottomless chest holds comes through here, so every answer agrees - for ValheimPlus,
+    /// for craft-from-chest mods asking the vanilla methods, and for the game itself.
     /// </remarks>
     internal static class ChestContents
     {
         /// <summary>
-        /// Whether this inventory is a bottomless chest's on a client with the V+ integration on.
+        /// Whether this inventory belongs to a bottomless chest on a client.
         /// </summary>
         /// <returns>
         /// True when the caller must answer for the chest. <paramref name="index"/> is null until
@@ -28,11 +29,16 @@ namespace BottomlessChest.Compat
             storeId = null;
             index = null;
 
-            if (!InventoryCapacity.IsUnbounded(inventory) || Plugin.Degraded || !ValheimPlusBridge.Attached
+            if (!InventoryCapacity.IsUnbounded(inventory) || Plugin.Degraded
                 || SidecarStore.IsServerAuthority || !BottomlessContainer.TryResolveInventory(inventory, out var chest))
             {
                 return false;
             }
+
+            // Asking is what starts this chest keeping its totals current, and keeps it doing so.
+            // Any mod that asks the way the game does gets an answer; ValheimPlus is only the
+            // first one this was written for.
+            chest.MarkContentsWanted();
 
             storeId = chest.CurrentStoreId;
             if (!string.IsNullOrEmpty(storeId))

@@ -77,6 +77,8 @@ namespace BottomlessChest.Compat
                         local.UnionWith(inventory.m_inventory);
                     }
 
+                    bottomless.MarkContentsWanted();
+
                     var storeId = bottomless.CurrentStoreId;
                     if (string.IsNullOrEmpty(storeId) || !Net.ChestRpc.Indexes.TryGet(storeId, out var index))
                     {
@@ -183,6 +185,8 @@ namespace BottomlessChest.Compat
             {
                 return false;
             }
+
+            bottomless.MarkContentsWanted();
 
             var storeId = bottomless.CurrentStoreId;
             if (amount <= 0 || string.IsNullOrEmpty(sharedName) || string.IsNullOrEmpty(storeId)
