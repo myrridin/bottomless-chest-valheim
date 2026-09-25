@@ -407,6 +407,16 @@ has to be read with that in mind.
       session. Likely fix: the client holds further takes until the in-flight one is
       answered, rather than loosening the server's check.
 
+- [ ] **D17. Index polling holds a session open for every chest in sight.** Raised by the
+      0.3.0 review. `BottomlessContainer.RefreshIndex` asks about every instantiated bottomless
+      chest once a second, and each request runs `ChestSessions.Acquire`, which marks the
+      session used - so `ReleaseIdle`'s ten minutes never elapse while the player stands near
+      them. Not a leak: the polling stops when the chest unloads on the client, and the session
+      ages out then. But a base with thirty large chests keeps thirty sessions resident, and a
+      chest the server itself has not loaded is read from the store to answer. Options: bound
+      polling by distance from the player, or answer `IndexRequest` from a lookup that does not
+      mark the session used and only acquires when the version differs. Deferred past 0.3.0.
+
 ### E. Release 0.3.0
 
 - [ ] **E17.** Release gate: the four never-change identifiers against `v0.2.0`, the store
