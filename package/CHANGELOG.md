@@ -61,6 +61,8 @@ runs and the mod behaves as 0.2.1 did.
   stack. Existing chests are corrected the first time they are opened.
 - **The build cost is now 10 wood**, the same as a wooden chest. If you never changed the cost,
   your config is updated to match; if you set your own, it is left alone.
+- **The chest looks warmer** - wood with a low amber rim, instead of grey with a green glow. The
+  same rule applies: untouched colours are updated, colours you chose are left alone.
 - `Multiplayer.SnapshotDebounceSeconds` is gone. Nothing had read it since 0.2.0.
 - Dragging a quest item out of the chest window is refused, the way the game refuses it
   everywhere else.
