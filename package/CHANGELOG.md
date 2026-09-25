@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0
+
+**Craft-from-chest mods can use a bottomless chest**, not only ValheimPlus. Tested with
+NearbyCrafting.
+
+**Everyone on a server needs 0.4.0**, including the server; a 0.3.x client cannot join a 0.4.0
+server. Chests are stored exactly as before, so upgrading and going back are both safe.
+
+- Any mod that asks a chest what it holds the way the game does can now count a bottomless
+  chest's contents, pay from it for crafting and building, and deposit into it.
+- A chest asks the server for its totals only while something is asking about it, so a chest
+  nobody queries costs nothing. Before, that depended on having ValheimPlus installed.
+- **Known limit:** a mass deposit moves one stack per press, because one deposit is in flight at
+  a time.
+
 ## 0.3.0
 
 **Crafting, building and stations can use a bottomless chest on a dedicated server**, with
